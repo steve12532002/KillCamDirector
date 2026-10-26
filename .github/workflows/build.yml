@@ -10,6 +10,9 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -80,3 +83,17 @@ jobs:
         with:
           name: KillCamDirector
           path: package/
+
+      - name: Publish package to the 'build' branch
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $sha = "${{ github.sha }}"
+          Set-Location package
+          git init -q -b build
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          "Built from $sha" | Out-File -Encoding utf8 BUILD_INFO.txt
+          git add -A
+          git commit -q -m "Build of $sha"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" build
