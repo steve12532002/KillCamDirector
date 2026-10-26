@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "killcamdirector",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "directxmath",
+    "directxtk",
+    "fmt",
+    "minhook",
+    "nlohmann-json",
+    "rapidcsv",
+    "simpleini",
+    "spdlog",
+    "toml11",
+    "xbyak"
+  ]
+}
