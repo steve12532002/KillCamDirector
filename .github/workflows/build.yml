@@ -6,6 +6,10 @@ on:
     tags: [ 'v*' ]
   workflow_dispatch:
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
@@ -35,14 +39,33 @@ jobs:
 
       - name: Configure
         shell: pwsh
-        run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-          -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
+        run: |
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md 2>&1 | Tee-Object -FilePath configure.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Build
-        run: cmake --build build --config Release
+        shell: pwsh
+        run: |
+          cmake --build build --config Release -- -k 0 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Report errors as annotations
+        if: failure()
+        shell: pwsh
+        run: |
+          $lines = @()
+          foreach ($f in @('configure.log', 'build.log')) {
+            if (Test-Path $f) { $lines += Get-Content $f | Where-Object { $_ -match 'error|Error|CMake Error|FAILED' } }
+          }
+          $lines = $lines | Select-Object -Unique | Select-Object -First 120
+          $chunks = [math]::Ceiling($lines.Count / 12)
+          for ($i = 0; $i -lt [math]::Min($chunks, 10); $i++) {
+            $part = ($lines | Select-Object -Skip ($i * 12) -First 12) -join '%0A'
+            Write-Output "::error title=log part $($i + 1)::$part"
+          }
 
       - name: Package
         shell: pwsh
