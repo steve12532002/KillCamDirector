@@ -80,6 +80,29 @@ namespace KCD
 			return Normalized(fwd, { 0, 1, 0 });
 		}
 
+		// Fraction (0..1) of the segment a->b that is free of world geometry.
+		float FreeFraction(RE::Actor* a_ref, const Vec& a_from, const Vec& a_to, int a_layer)
+		{
+			auto cell = a_ref ? a_ref->GetParentCell() : nullptr;
+			auto world = cell ? cell->GetbhkWorld() : nullptr;
+			if (!world) {
+				return 1.0f;
+			}
+			const float     scale = RE::bhkWorld::GetWorldScale();
+			RE::bhkPickData pick;
+			pick.rayInput.from = RE::hkVector4(a_from * scale);
+			pick.rayInput.to = RE::hkVector4(a_to * scale);
+			pick.rayInput.filterInfo.SetCollisionLayer(static_cast<RE::COL_LAYER>(a_layer));
+			{
+				RE::BSReadLockGuard lock(world->worldLock);
+				world->PickObject(pick);
+			}
+			if (pick.rayOutput.HasHit()) {
+				return std::clamp(pick.rayOutput.hitFraction, 0.0f, 1.0f);
+			}
+			return 1.0f;
+		}
+
 		void Notify(const char* a_msg)
 		{
 			using func_t = void (*)(const char*, const char*, bool);
@@ -297,6 +320,7 @@ namespace KCD
 			return;
 		}
 		_zoom = 1.0f;
+		_avoidYaw = _avoidTarget = _avoidTimer = 0.0f;
 		_time = _shotTime = 0;
 		_shot = 0;
 		_hitTriggers = 0;
@@ -459,6 +483,39 @@ namespace KCD
 		wantPos.z = std::max(wantPos.z, ground + s.minHeight);
 		wantTarget.z = std::max(wantTarget.z, ground + 20.0f);
 
+		// ---- keep out of walls: swing round to a free angle, then pull in if still blocked
+		Vec pivot = wantTarget;
+		if (s.collision) {
+			Vec   baseOff = wantPos - pivot;
+			float len = baseOff.Length();
+			_avoidTimer -= a_dt;
+			if (_avoidTimer <= 0.0f && len > 1.0f) {
+				_avoidTimer = 0.2f;
+				static const float offsets[] = { 0.0f, 0.45f, -0.45f, 0.9f, -0.9f, 1.4f, -1.4f, 2.0f, -2.0f, 3.1416f };
+				float bestScore = -1e9f, best = _avoidTarget;
+				for (float o : offsets) {
+					Vec   cand = pivot + RotZ(baseOff, o);
+					float freeLen = FreeFraction(a_player, pivot, cand, s.collisionLayer) * len;
+					float score = std::min(freeLen, len) / len - std::abs(o) * 0.12f;
+					if (std::abs(o - _avoidTarget) < 0.01f) {
+						score += 0.08f;  // stickiness, avoids flip-flopping
+					}
+					if (score > bestScore) {
+						bestScore = score;
+						best = o;
+					}
+				}
+				_avoidTarget = best;
+			}
+			_avoidYaw = _avoidYaw + (_avoidTarget - _avoidYaw) * Damp(a_dt, 0.5f);
+			wantPos = pivot + RotZ(baseOff, _avoidYaw);
+			float f = FreeFraction(a_player, pivot, wantPos, s.collisionLayer);
+			if (f < 1.0f) {
+				float keep = std::max(0.0f, f * len - s.collisionMargin) / len;
+				wantPos = pivot + (wantPos - pivot) * keep;
+			}
+		}
+
 		Vec curPos{ _camPos.x, _camPos.y, _camPos.z };
 		Vec curTarget{ _camTarget.x, _camTarget.y, _camTarget.z };
 		if (_snap) {
@@ -476,6 +533,17 @@ namespace KCD
 			curTarget = curTarget + (wantTarget - curTarget) * Damp(a_dt, tau * 0.7f);
 		}
 		curPos.z = std::max(curPos.z, ground + s.minHeight * 0.8f);
+		if (s.collision) {
+			// the smoothed camera can lag through a wall corner - clamp it too
+			Vec   off = curPos - pivot;
+			float len = off.Length();
+			if (len > 1.0f) {
+				float f = FreeFraction(a_player, pivot, curPos, s.collisionLayer);
+				if (f < 1.0f) {
+					curPos = pivot + off * (std::max(0.0f, f * len - s.collisionMargin) / len);
+				}
+			}
+		}
 		_camPos = { curPos.x, curPos.y, curPos.z };
 		_camTarget = { curTarget.x, curTarget.y, curTarget.z };
 

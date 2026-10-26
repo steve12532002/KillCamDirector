@@ -59,7 +59,10 @@ namespace KCD
 		float distanceScale{ 1.0f };  // multiplies every preset distance
 		bool  autoZoom{ true };       // move in when the actors are close, out when far apart
 		bool  preferFace{ true };     // random side picks the side that shows your character's face
-		float minHeight{ 35.0f };     // camera never goes lower than this above the actors' feet // seconds the killmove must be over before the camera lets go
+		float minHeight{ 35.0f };
+		bool  collision{ true };      // keep the camera out of walls in tight spaces
+		float collisionMargin{ 20.0f };
+		int   collisionLayer{ 36 };   // havok layer used for the wall check (36 = camera sphere)     // camera never goes lower than this above the actors' feet // seconds the killmove must be over before the camera lets go
 		// letterbox override: -1 = use preset
 		float letterboxOverride{ -1.0f };
 		// [SlowMotion] - applies to every preset
