@@ -53,6 +53,7 @@ namespace KCD
 			s.minHeight = F(ini, "Framing", "fMinHeight", s.minHeight);
 			s.collision = ini.GetBoolValue("Collision", "bEnabled", s.collision);
 			s.collisionMargin = F(ini, "Collision", "fMargin", s.collisionMargin);
+			s.interiorStatic = ini.GetBoolValue("Collision", "bInteriorStatic", s.interiorStatic);
 			s.collisionLayer = static_cast<int>(ini.GetLongValue("Collision", "iLayer", s.collisionLayer));
 			s.letterboxOverride = F(ini, "Override", "fLetterbox", s.letterboxOverride);
 			s.slowMode = static_cast<int>(ini.GetLongValue("SlowMotion", "iMode", s.slowMode));
@@ -87,6 +88,7 @@ namespace KCD
 		ini.SetBoolValue("Framing", "bAutoZoom", autoZoom);
 		ini.SetBoolValue("Framing", "bPreferFace", preferFace);
 		ini.SetBoolValue("Collision", "bEnabled", collision);
+		ini.SetBoolValue("Collision", "bInteriorStatic", interiorStatic);
 		ini.SetLongValue("SlowMotion", "iMode", slowMode);
 		ini.SetDoubleValue("SlowMotion", "fScale", slowScale);
 		ini.SetDoubleValue("SlowMotion", "fDuration", slowDuration);

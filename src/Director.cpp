@@ -320,7 +320,9 @@ namespace KCD
 			return;
 		}
 		_zoom = 1.0f;
-		_avoidYaw = _avoidTarget = _avoidTimer = 0.0f;
+		_tight = false;
+		_needFraming = true;
+		_pullIn = 1.0f;
 		_time = _shotTime = 0;
 		_shot = 0;
 		_hitTriggers = 0;
@@ -405,6 +407,9 @@ namespace KCD
 			_snap = ns.blend <= 0.0f;
 			_blendLen = _blendTimer = ns.blend;
 			_axisInit = false;
+			if (!_tight) {
+				_needFraming = true;  // once a take is in tight mode it stays there - no jumping around
+			}
 		}
 		auto& shot = shots[_shot];
 
@@ -483,37 +488,62 @@ namespace KCD
 		wantPos.z = std::max(wantPos.z, ground + s.minHeight);
 		wantTarget.z = std::max(wantTarget.z, ground + 20.0f);
 
-		// ---- keep out of walls: swing round to a free angle, then pull in if still blocked
+		// ---- tight spaces: pick the most open side once per shot and hold a calm shot from there
 		Vec pivot = wantTarget;
-		if (s.collision) {
-			Vec   baseOff = wantPos - pivot;
-			float len = baseOff.Length();
-			_avoidTimer -= a_dt;
-			if (_avoidTimer <= 0.0f && len > 1.0f) {
-				_avoidTimer = 0.2f;
-				static const float offsets[] = { 0.0f, 0.45f, -0.45f, 0.9f, -0.9f, 1.4f, -1.4f, 2.0f, -2.0f, 3.1416f };
-				float bestScore = -1e9f, best = _avoidTarget;
-				for (float o : offsets) {
-					Vec   cand = pivot + RotZ(baseOff, o);
-					float freeLen = FreeFraction(a_player, pivot, cand, s.collisionLayer) * len;
-					float score = std::min(freeLen, len) / len - std::abs(o) * 0.12f;
-					if (std::abs(o - _avoidTarget) < 0.01f) {
-						score += 0.08f;  // stickiness, avoids flip-flopping
-					}
+		bool interior = false;
+		if (auto cell = a_player->GetParentCell()) {
+			interior = cell->IsInteriorCell();
+		}
+		if (s.collision && _needFraming) {
+			_needFraming = false;
+			Vec   desiredOff = wantPos - pivot;
+			float desiredLen = desiredOff.Length();
+			Vec   desiredDir = Normalized({ desiredOff.x, desiredOff.y, 0 }, { 0, -1, 0 });
+			float freeDesired = FreeFraction(a_player, pivot, wantPos, s.collisionLayer) * desiredLen;
+			_tight = (interior && s.interiorStatic) || freeDesired < desiredLen * 0.75f;
+			if (_tight) {
+				// sample 16 directions and take the most open one, preferring the preset's angle
+				const float probe = std::max(desiredLen, 260.0f);
+				float       bestScore = -1e9f;
+				Vec         bestDir = desiredDir;
+				float       bestFree = freeDesired;
+				for (int i = 0; i < 16; ++i) {
+					float a = i * (2.0f * kPi / 16.0f);
+					Vec   d = RotZ(desiredDir, a);
+					Vec   end = pivot + d * probe + Vec{ 0, 0, 25.0f };
+					float freeLen = FreeFraction(a_player, pivot, end, s.collisionLayer) * probe;
+					float turn = std::min(a, 2.0f * kPi - a);
+					float score = freeLen - turn * 25.0f;
 					if (score > bestScore) {
 						bestScore = score;
-						best = o;
+						bestDir = d;
+						bestFree = freeLen;
 					}
 				}
-				_avoidTarget = best;
+				_tightDir = { bestDir.x, bestDir.y, 0 };
+				_tightDist = std::clamp(bestFree * 0.8f, 80.0f, desiredLen);
+				logger::info("Tight space ({}): open side {:.0f} units, camera at {:.0f}", interior ? "interior" : "blocked", bestFree, _tightDist);
 			}
-			_avoidYaw = _avoidYaw + (_avoidTarget - _avoidYaw) * Damp(a_dt, 0.5f);
-			wantPos = pivot + RotZ(baseOff, _avoidYaw);
-			float f = FreeFraction(a_player, pivot, wantPos, s.collisionLayer);
-			if (f < 1.0f) {
-				float keep = std::max(0.0f, f * len - s.collisionMargin) / len;
-				wantPos = pivot + (wantPos - pivot) * keep;
+		}
+		if (s.collision && _tight) {
+			// small, slow drift so the shot still breathes
+			float drift = Lerp(-8.0f, 8.0f, t) * kPi / 180.0f * static_cast<float>(_side);
+			Vec   d = RotZ({ _tightDir.x, _tightDir.y, 0 }, drift);
+			wantPos = mid + d * _tightDist + Vec{ 0, 0, std::clamp(height, 20.0f, 50.0f) };
+		}
+		if (s.collision) {
+			// pull in smoothly in front of anything still in the way (fast in, slow out)
+			Vec   off = wantPos - pivot;
+			float len = off.Length();
+			float keep = 1.0f;
+			if (len > 1.0f) {
+				float f = FreeFraction(a_player, pivot, wantPos, s.collisionLayer);
+				if (f < 1.0f) {
+					keep = std::max(0.25f, (f * len - s.collisionMargin) / len);
+				}
 			}
+			_pullIn = _pullIn + (keep - _pullIn) * Damp(a_dt, keep < _pullIn ? 0.08f : 0.6f);
+			wantPos = pivot + off * _pullIn;
 		}
 
 		Vec curPos{ _camPos.x, _camPos.y, _camPos.z };
@@ -533,17 +563,6 @@ namespace KCD
 			curTarget = curTarget + (wantTarget - curTarget) * Damp(a_dt, tau * 0.7f);
 		}
 		curPos.z = std::max(curPos.z, ground + s.minHeight * 0.8f);
-		if (s.collision) {
-			// the smoothed camera can lag through a wall corner - clamp it too
-			Vec   off = curPos - pivot;
-			float len = off.Length();
-			if (len > 1.0f) {
-				float f = FreeFraction(a_player, pivot, curPos, s.collisionLayer);
-				if (f < 1.0f) {
-					curPos = pivot + off * (std::max(0.0f, f * len - s.collisionMargin) / len);
-				}
-			}
-		}
 		_camPos = { curPos.x, curPos.y, curPos.z };
 		_camTarget = { curTarget.x, curTarget.y, curTarget.z };
 

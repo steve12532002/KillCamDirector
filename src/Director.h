@@ -59,9 +59,11 @@ namespace KCD
 		float _sinceStop{ 1000.0f };
 		bool  _sidePending{ false };
 		float _zoom{ 1.0f };
-		float _avoidYaw{ 0 };
-		float _avoidTarget{ 0 };
-		float _avoidTimer{ 0 };
+		bool  _tight{ false };
+		bool  _needFraming{ true };
+		Vec3  _tightDir{ 0, -1, 0 };
+		float _tightDist{ 150 };
+		float _pullIn{ 1.0f };
 		bool  _axisInit{ false };
 		Vec3  _camPos;
 		Vec3  _camTarget;

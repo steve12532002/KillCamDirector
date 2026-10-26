@@ -68,7 +68,10 @@ namespace KCD::UI
 			changed |= ImGuiMCP::SliderFloat("Camera distance", &s.distanceScale, 0.5f, 1.5f, "%.2fx");
 			changed |= ImGuiMCP::Checkbox("Auto zoom (closer when the fighters are close)", &s.autoZoom);
 			changed |= ImGuiMCP::Checkbox("Prefer the side that shows your face", &s.preferFace);
-			changed |= ImGuiMCP::Checkbox("Avoid walls (swing round / move in when blocked)", &s.collision);
+			changed |= ImGuiMCP::Checkbox("Avoid walls", &s.collision);
+			if (s.collision) {
+				changed |= ImGuiMCP::Checkbox("Indoors: one calm shot from the open side of the room", &s.interiorStatic);
+			}
 
 			ImGuiMCP::SeparatorText("Letterbox");
 			bool lbOverride = s.letterboxOverride >= 0.0f;

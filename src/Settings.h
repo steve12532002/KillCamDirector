@@ -62,6 +62,7 @@ namespace KCD
 		float minHeight{ 35.0f };
 		bool  collision{ true };      // keep the camera out of walls in tight spaces
 		float collisionMargin{ 20.0f };
+		bool  interiorStatic{ true }; // indoors: hold one calm shot from the most open side of the room
 		int   collisionLayer{ 36 };   // havok layer used for the wall check (36 = camera sphere)     // camera never goes lower than this above the actors' feet // seconds the killmove must be over before the camera lets go
 		// letterbox override: -1 = use preset
 		float letterboxOverride{ -1.0f };
