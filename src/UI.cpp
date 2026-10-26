@@ -78,20 +78,18 @@ namespace KCD::UI
 				}
 			}
 
-			ImGuiMCP::SeparatorText("Slow motion");
-			const char* slowItems[] = { "Use preset", "Off", "On" };
-			int         slowIdx = s.slowMotionOverride < 0 ? 0 : (s.slowMotionOverride == 0 ? 1 : 2);
+			ImGuiMCP::SeparatorText("Slow motion (all presets)");
+			const char* slowItems[] = { "Off", "On each hit / kill (finisher)", "Whole killmove" };
+			int         slowIdx = std::clamp(s.slowMode, 0, 2);
 			if (ImGuiMCP::Combo("Slow motion", &slowIdx, slowItems, 3)) {
-				s.slowMotionOverride = slowIdx == 0 ? -1 : (slowIdx == 1 ? 0 : 1);
+				s.slowMode = slowIdx;
 				changed = true;
 			}
-			bool scaleOverride = s.slowScaleOverride > 0.0f;
-			if (ImGuiMCP::Checkbox("Override slow-motion speed", &scaleOverride)) {
-				s.slowScaleOverride = scaleOverride ? 0.35f : -1.0f;
-				changed = true;
+			if (s.slowMode > 0) {
+				changed |= ImGuiMCP::SliderFloat("Game speed while slow", &s.slowScale, 0.1f, 0.9f, "%.2fx");
 			}
-			if (scaleOverride) {
-				changed |= ImGuiMCP::SliderFloat("Speed", &s.slowScaleOverride, 0.1f, 0.9f, "%.2fx");
+			if (s.slowMode == 1) {
+				changed |= ImGuiMCP::SliderFloat("Seconds per hit", &s.slowDuration, 0.2f, 2.5f, "%.1f s");
 			}
 
 			ImGuiMCP::SeparatorText("Presets");

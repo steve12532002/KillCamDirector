@@ -17,6 +17,8 @@ namespace KCD
 		float fov1{ 0.0f };
 		int   side{ 0 };          // 0 = random, 1 = right, -1 = left, 2 = same side as previous shot
 		float blend{ 0.35f };     // seconds to move from the previous shot; 0 = hard cut
+		int   anchor{ 0 };        // 0 = yaw measured around the pair (0 = behind you),
+		                          // 1 = yaw measured from the way your body faces (180 = in front of your face)
 	};
 
 	struct Preset
@@ -24,12 +26,6 @@ namespace KCD
 		std::string       name;
 		std::string       file;
 		float             letterbox{ 0.10f };    // fraction of screen height per bar
-		bool              slowMotion{ true };
-		float             slowScale{ 0.35f };    // time multiplier while slow
-		bool              slowOnHit{ true };     // slow down on hit / kill animation events
-		float             slowDuration{ 0.7f };  // real seconds per hit trigger
-		float             slowStart{ -1.0f };    // optional fixed window (game seconds from start)
-		float             slowEnd{ -1.0f };
 		std::vector<Shot> shots;
 	};
 
@@ -59,10 +55,13 @@ namespace KCD
 		float       maxPartnerDistance{ 600.0f };
 		float       smoothing{ 0.10f };   // seconds, camera follow smoothing
 		float       blendOut{ 0.45f };    // seconds to hand the camera back
-		// overrides: -1 = use preset
+		float stopDelay{ 0.30f }; // seconds the killmove must be over before the camera lets go
+		// letterbox override: -1 = use preset
 		float letterboxOverride{ -1.0f };
-		int   slowMotionOverride{ -1 };
-		float slowScaleOverride{ -1.0f };
+		// [SlowMotion] - applies to every preset
+		int   slowMode{ 1 };          // 0 = off, 1 = on each hit / kill (finisher), 2 = whole killmove
+		float slowScale{ 0.25f };     // game speed while slow
+		float slowDuration{ 0.9f };   // real seconds per hit
 		// [Debug]
 		int  axisMode{ -1 };  // -1 auto-detect, 0 = +Y forward, 1 = +X forward
 		bool verbose{ false };

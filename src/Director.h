@@ -39,6 +39,7 @@ namespace KCD
 		void ApplyCamera(RE::PlayerCamera* a_camera, const Vec3& a_pos, const RE::NiMatrix3& a_rot);
 		RE::NiMatrix3 LookRotation(const Vec3& a_forward) const;
 		RE::Actor* FindPartner(RE::PlayerCharacter* a_player) const;
+		bool       WantsCamera(RE::PlayerCharacter* a_player) const;
 		void SetTimeMultiplier(float a_mult);
 
 		bool          _active{ false };
@@ -52,6 +53,9 @@ namespace KCD
 		float _blendLen{ 0 };
 		bool  _snap{ true };
 		Vec3  _axis{ 0, 1, 0 };
+		Vec3  _facing{ 0, 1, 0 };
+		bool  _facingInit{ false };
+		float _offTimer{ 0 };
 		bool  _axisInit{ false };
 		Vec3  _camPos;
 		Vec3  _camTarget;

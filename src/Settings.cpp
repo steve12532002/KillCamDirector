@@ -46,9 +46,11 @@ namespace KCD
 			s.maxPartnerDistance = F(ini, "General", "fMaxPartnerDistance", s.maxPartnerDistance);
 			s.smoothing = F(ini, "General", "fSmoothing", s.smoothing);
 			s.blendOut = F(ini, "General", "fBlendOut", s.blendOut);
+			s.stopDelay = F(ini, "General", "fStopDelay", s.stopDelay);
 			s.letterboxOverride = F(ini, "Override", "fLetterbox", s.letterboxOverride);
-			s.slowMotionOverride = static_cast<int>(ini.GetLongValue("Override", "iSlowMotion", s.slowMotionOverride));
-			s.slowScaleOverride = F(ini, "Override", "fSlowScale", s.slowScaleOverride);
+			s.slowMode = static_cast<int>(ini.GetLongValue("SlowMotion", "iMode", s.slowMode));
+			s.slowScale = F(ini, "SlowMotion", "fScale", s.slowScale);
+			s.slowDuration = F(ini, "SlowMotion", "fDuration", s.slowDuration);
 			s.axisMode = static_cast<int>(ini.GetLongValue("Debug", "iAxisMode", s.axisMode));
 			s.verbose = ini.GetBoolValue("Debug", "bVerbose", s.verbose);
 		}
@@ -74,8 +76,9 @@ namespace KCD
 		ini.SetBoolValue("General", "bEnabled", enabled);
 		ini.SetValue("General", "sPreset", preset.c_str());
 		ini.SetDoubleValue("Override", "fLetterbox", letterboxOverride);
-		ini.SetLongValue("Override", "iSlowMotion", slowMotionOverride);
-		ini.SetDoubleValue("Override", "fSlowScale", slowScaleOverride);
+		ini.SetLongValue("SlowMotion", "iMode", slowMode);
+		ini.SetDoubleValue("SlowMotion", "fScale", slowScale);
+		ini.SetDoubleValue("SlowMotion", "fDuration", slowDuration);
 		if (ini.SaveFile(kUserIni) < 0) {
 			logger::warn("Could not save {}", kUserIni);
 		}
@@ -106,11 +109,6 @@ namespace KCD
 			p.file = f.filename().string();
 			p.name = ini.GetValue("Preset", "Name", f.stem().string().c_str());
 			p.letterbox = F(ini, "Preset", "Letterbox", p.letterbox);
-			p.slowMotion = ini.GetBoolValue("Preset", "SlowMotion", p.slowMotion);
-			p.slowScale = F(ini, "Preset", "SlowScale", p.slowScale);
-			p.slowOnHit = ini.GetBoolValue("Preset", "SlowOnHit", p.slowOnHit);
-			p.slowDuration = F(ini, "Preset", "SlowDuration", p.slowDuration);
-			std::tie(p.slowStart, p.slowEnd) = Pair(ini, "Preset", "SlowWindow", -1.0f);
 			for (int i = 1; i <= 16; ++i) {
 				auto sec = "Shot" + std::to_string(i);
 				if (ini.GetSectionSize(sec.c_str()) < 0) {
@@ -125,6 +123,8 @@ namespace KCD
 				std::tie(s.fov0, s.fov1) = Pair(ini, c, "FOV", 0.0f);
 				s.lookAt = F(ini, c, "LookAt", s.lookAt);
 				s.blend = F(ini, c, "Blend", s.blend);
+				std::string anchor = ini.GetValue(c, "Anchor", "pair");
+				s.anchor = (_stricmp(anchor.c_str(), "player") == 0) ? 1 : 0;
 				std::string side = ini.GetValue(c, "Side", "random");
 				std::transform(side.begin(), side.end(), side.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
 				s.side = side == "right" ? 1 : side == "left" ? -1 : side == "same" ? 2 : 0;

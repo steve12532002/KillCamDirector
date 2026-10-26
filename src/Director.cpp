@@ -49,6 +49,37 @@ namespace KCD
 			return p;
 		}
 
+		bool IsSynced(RE::Actor* a_actor)
+		{
+			static const RE::BSFixedString kSynced("bIsSynced");
+			bool v = false;
+			return a_actor && a_actor->GetGraphVariableBool(kSynced, v) && v;
+		}
+
+		// Direction the actor's upper body faces, from the shoulder line (works even when the
+		// animation turns the body away from the actor's own heading).
+		std::optional<Vec> BodyFacing(RE::Actor* a_actor)
+		{
+			static const RE::BSFixedString kL("NPC L UpperArm [LUar]");
+			static const RE::BSFixedString kR("NPC R UpperArm [RUar]");
+			auto root = a_actor->Get3D(false);
+			if (!root) {
+				return std::nullopt;
+			}
+			auto l = root->GetObjectByName(kL);
+			auto r = root->GetObjectByName(kR);
+			if (!l || !r) {
+				return std::nullopt;
+			}
+			Vec right = r->world.translate - l->world.translate;
+			right.z = 0;
+			if (right.Length() < 1.0f) {
+				return std::nullopt;
+			}
+			Vec fwd{ -right.y, right.x, 0 };  // up x right
+			return Normalized(fwd, { 0, 1, 0 });
+		}
+
 		void Notify(const char* a_msg)
 		{
 			using func_t = void (*)(const char*, const char*, bool);
@@ -125,7 +156,7 @@ namespace KCD
 		auto       pos = a_player->GetPosition();
 		if (auto lists = RE::ProcessLists::GetSingleton()) {
 			lists->ForEachHighActor([&](RE::Actor* a) {
-				if (a && a != a_player && a->IsInKillMove()) {
+				if (a && a != a_player && (a->IsInKillMove() || IsSynced(a))) {
 					float d = a->GetPosition().GetSquaredDistance(pos);
 					if (d < bestD) {
 						bestD = d;
@@ -136,6 +167,23 @@ namespace KCD
 			});
 		}
 		return best;
+	}
+
+	bool Director::WantsCamera(RE::PlayerCharacter* a_player) const
+	{
+		if (a_player->IsInKillMove()) {
+			return true;
+		}
+		if (!IsSynced(a_player)) {
+			return false;
+		}
+		// paired animation (e.g. modded or sneak killmoves that never set the killmove flag):
+		// only film it when the other actor is an enemy / dying, not hugs or feeding scenes
+		auto partner = FindPartner(a_player);
+		if (!partner) {
+			return false;
+		}
+		return partner->IsInKillMove() || partner->IsDead() || partner->IsHostileToActor(a_player) || a_player->IsInCombat();
 	}
 
 	void Director::SetTimeMultiplier(float a_mult)
@@ -167,11 +215,18 @@ namespace KCD
 			return;
 		}
 
-		bool want = s.enabled && player->IsInKillMove();
-		if (want && !_active) {
-			Start(player, a_camera);
-		} else if (!want && _active) {
-			Stop(a_camera);
+		bool want = s.enabled && WantsCamera(player);
+		if (want) {
+			_offTimer = 0;
+			if (!_active) {
+				Start(player, a_camera);
+			}
+		} else if (_active) {
+			_offTimer += dt;
+			if (!s.enabled || _offTimer >= s.stopDelay) {
+				Stop(a_camera);
+				_offTimer = 0;
+			}
 		}
 
 		if (_active) {
@@ -243,6 +298,7 @@ namespace KCD
 		_snap = shot.blend <= 0.0f;
 		_blendLen = _blendTimer = shot.blend;
 		_axisInit = false;
+		_facingInit = false;
 		logger::info("Killmove camera start: preset '{}', partner {}", _preset->name, _partner ? "found" : "none");
 	}
 
@@ -316,6 +372,20 @@ namespace KCD
 		}
 		_axis = { axis.x, axis.y, 0 };
 
+		if (auto bf = BodyFacing(a_player)) {
+			Vec cur{ _facing.x, _facing.y, 0 };
+			if (!_facingInit) {
+				cur = *bf;
+				_facingInit = true;
+			} else if (cur.Dot(*bf) > -0.5f) {
+				cur = Normalized(cur + (*bf - cur) * Damp(a_dt, 0.9f), *bf);
+			}
+			_facing = { cur.x, cur.y, 0 };
+		} else if (!_facingInit) {
+			_facing = { fwd.x, fwd.y, 0 };
+			_facingInit = true;
+		}
+
 		float t = shot.duration > 0 ? Smooth(_shotTime / shot.duration) : 1.0f;
 		float yaw = Lerp(shot.yaw0, shot.yaw1, t) * kPi / 180.0f * static_cast<float>(_side);
 		float dist = Lerp(shot.dist0, shot.dist1, t);
@@ -323,7 +393,12 @@ namespace KCD
 		float fov = Lerp(shot.fov0, shot.fov1, t);
 
 		Vec mid = (P + O) * 0.5f;
-		Vec dir = RotZ(axis * -1.0f, yaw);
+		Vec base = axis;
+		if (shot.anchor == 1) {
+			base = { _facing.x, _facing.y, 0 };
+			mid = P + (O - P) * 0.25f;
+		}
+		Vec dir = RotZ(base * -1.0f, yaw);
 		Vec wantPos = mid + dir * dist + Vec{ 0, 0, height };
 		Vec wantTarget = P + (O - P) * Clamp01(shot.lookAt);
 
@@ -365,20 +440,13 @@ namespace KCD
 	{
 		auto& s = Settings::Get();
 		bool  want = false;
-		float scale = 1.0f;
-		if (_active && _preset) {
-			bool on = s.slowMotionOverride >= 0 ? s.slowMotionOverride == 1 : _preset->slowMotion;
-			scale = s.slowScaleOverride > 0.0f ? s.slowScaleOverride : _preset->slowScale;
-			int trig = _hitTriggers.exchange(0);
-			if (on) {
-				if (trig > 0 && _preset->slowOnHit) {
-					_slowTimer = _preset->slowDuration;
-				}
-				if (_preset->slowStart >= 0.0f && _time >= _preset->slowStart && _time <= _preset->slowEnd) {
-					want = true;
-				}
-				if (!_preset->slowOnHit && _preset->slowStart < 0.0f) {
-					want = true;
+		int   trig = _hitTriggers.exchange(0);
+		if (_active && s.slowMode > 0) {
+			if (s.slowMode == 2) {
+				want = true;
+			} else {
+				if (trig > 0) {
+					_slowTimer = s.slowDuration;
 				}
 				if (_slowTimer > 0.0f) {
 					want = true;
@@ -386,7 +454,7 @@ namespace KCD
 				}
 			}
 		}
-		float target = want ? std::clamp(scale, 0.05f, 1.0f) : 1.0f;
+		float target = want ? std::clamp(s.slowScale, 0.05f, 1.0f) : 1.0f;
 		if (!_ownsTimeMult && target == 1.0f) {
 			return;
 		}
