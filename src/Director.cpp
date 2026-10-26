@@ -80,7 +80,24 @@ namespace KCD
 			return Normalized(fwd, { 0, 1, 0 });
 		}
 
-		// Fraction (0..1) of the segment a->b that is free of world geometry.
+		// Only world geometry blocks the camera - actors, ragdolls, weapons, clutter, triggers etc. do not.
+		bool IsSolidLayer(RE::COL_LAYER a_layer)
+		{
+			switch (a_layer) {
+			case RE::COL_LAYER::kStatic:
+			case RE::COL_LAYER::kAnimStatic:
+			case RE::COL_LAYER::kTrees:
+			case RE::COL_LAYER::kTerrain:
+			case RE::COL_LAYER::kGround:
+			case RE::COL_LAYER::kProps:
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		// Fraction (0..1) of the segment a->b that is free of world geometry. Non-solid hits
+		// (the fighters themselves, clutter...) are skipped by re-casting from just past them.
 		float FreeFraction(RE::Actor* a_ref, const Vec& a_from, const Vec& a_to, int a_layer)
 		{
 			auto cell = a_ref ? a_ref->GetParentCell() : nullptr;
@@ -88,17 +105,32 @@ namespace KCD
 			if (!world) {
 				return 1.0f;
 			}
-			const float     scale = RE::bhkWorld::GetWorldScale();
-			RE::bhkPickData pick;
-			pick.rayInput.from = RE::hkVector4(a_from * scale);
-			pick.rayInput.to = RE::hkVector4(a_to * scale);
-			pick.rayInput.filterInfo.SetCollisionLayer(static_cast<RE::COL_LAYER>(a_layer));
-			{
-				RE::BSReadLockGuard lock(world->worldLock);
-				world->PickObject(pick);
+			const float scale = RE::bhkWorld::GetWorldScale();
+			const Vec   seg = a_to - a_from;
+			const float len = seg.Length();
+			if (len < 1.0f) {
+				return 1.0f;
 			}
-			if (pick.rayOutput.HasHit()) {
-				return std::clamp(pick.rayOutput.hitFraction, 0.0f, 1.0f);
+			float start = 0.0f;  // fraction along the segment already cleared
+			for (int i = 0; i < 8 && start < 1.0f; ++i) {
+				RE::bhkPickData pick;
+				Vec             from = a_from + seg * start;
+				pick.rayInput.from = RE::hkVector4(from * scale);
+				pick.rayInput.to = RE::hkVector4(a_to * scale);
+				pick.rayInput.filterInfo.SetCollisionLayer(static_cast<RE::COL_LAYER>(a_layer));
+				{
+					RE::BSReadLockGuard lock(world->worldLock);
+					world->PickObject(pick);
+				}
+				if (!pick.rayOutput.HasHit()) {
+					return 1.0f;
+				}
+				float hit = start + (1.0f - start) * std::clamp(pick.rayOutput.hitFraction, 0.0f, 1.0f);
+				auto  col = pick.rayOutput.rootCollidable;
+				if (col && IsSolidLayer(col->GetCollisionLayer())) {
+					return hit;
+				}
+				start = hit + 5.0f / len;  // step just past the non-solid object
 			}
 			return 1.0f;
 		}
@@ -500,29 +532,39 @@ namespace KCD
 			float desiredLen = desiredOff.Length();
 			Vec   desiredDir = Normalized({ desiredOff.x, desiredOff.y, 0 }, { 0, -1, 0 });
 			float freeDesired = FreeFraction(a_player, pivot, wantPos, s.collisionLayer) * desiredLen;
-			_tight = (interior && s.interiorStatic) || freeDesired < desiredLen * 0.75f;
-			if (_tight) {
-				// sample 16 directions and take the most open one, preferring the preset's angle
-				const float probe = std::max(desiredLen, 260.0f);
-				float       bestScore = -1e9f;
-				Vec         bestDir = desiredDir;
-				float       bestFree = freeDesired;
-				for (int i = 0; i < 16; ++i) {
-					float a = i * (2.0f * kPi / 16.0f);
-					Vec   d = RotZ(desiredDir, a);
-					Vec   end = pivot + d * probe + Vec{ 0, 0, 25.0f };
-					float freeLen = FreeFraction(a_player, pivot, end, s.collisionLayer) * probe;
-					float turn = std::min(a, 2.0f * kPi - a);
-					float score = freeLen - turn * 25.0f;
-					if (score > bestScore) {
-						bestScore = score;
-						bestDir = d;
-						bestFree = freeLen;
-					}
+			// probe 16 directions around the pair
+			const float probe = std::max(desiredLen, 260.0f);
+			float       frees[16];
+			float       bestScore = -1e9f;
+			Vec         bestDir = desiredDir;
+			float       bestFree = freeDesired;
+			for (int i = 0; i < 16; ++i) {
+				float a = i * (2.0f * kPi / 16.0f);
+				Vec   d = RotZ(desiredDir, a);
+				Vec   end = pivot + d * probe + Vec{ 0, 0, 25.0f };
+				float freeLen = FreeFraction(a_player, pivot, end, s.collisionLayer) * probe;
+				frees[i] = freeLen;
+				float turn = std::min(a, 2.0f * kPi - a);
+				float score = freeLen - turn * 25.0f;
+				if (score > bestScore) {
+					bestScore = score;
+					bestDir = d;
+					bestFree = freeLen;
 				}
+			}
+			float sorted[16];
+			std::copy(std::begin(frees), std::end(frees), std::begin(sorted));
+			std::sort(std::begin(sorted), std::end(sorted));
+			float median = sorted[8];
+			bool  cramped = interior && s.interiorStatic && median < 220.0f;
+			_tight = cramped || freeDesired < desiredLen * 0.75f;
+			if (_tight) {
 				_tightDir = { bestDir.x, bestDir.y, 0 };
 				_tightDist = std::clamp(bestFree * 0.8f, 80.0f, desiredLen);
-				logger::info("Tight space ({}): open side {:.0f} units, camera at {:.0f}", interior ? "interior" : "blocked", bestFree, _tightDist);
+				logger::info("Tight space ({}): median room size {:.0f}, open side {:.0f}, camera at {:.0f}",
+					cramped ? "cramped room" : "preset angle blocked", median, bestFree, _tightDist);
+			} else if (s.verbose) {
+				logger::info("Room is open (median {:.0f}) - using the preset shot", median);
 			}
 		}
 		if (s.collision && _tight) {
