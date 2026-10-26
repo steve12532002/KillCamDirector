@@ -64,6 +64,11 @@ namespace KCD::UI
 				changed = true;
 			}
 
+			ImGuiMCP::SeparatorText("Framing");
+			changed |= ImGuiMCP::SliderFloat("Camera distance", &s.distanceScale, 0.5f, 1.5f, "%.2fx");
+			changed |= ImGuiMCP::Checkbox("Auto zoom (closer when the fighters are close)", &s.autoZoom);
+			changed |= ImGuiMCP::Checkbox("Prefer the side that shows your face", &s.preferFace);
+
 			ImGuiMCP::SeparatorText("Letterbox");
 			bool lbOverride = s.letterboxOverride >= 0.0f;
 			if (ImGuiMCP::Checkbox("Override preset letterbox", &lbOverride)) {

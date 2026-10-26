@@ -56,6 +56,9 @@ namespace KCD
 		Vec3  _facing{ 0, 1, 0 };
 		bool  _facingInit{ false };
 		float _offTimer{ 0 };
+		float _sinceStop{ 1000.0f };
+		bool  _sidePending{ false };
+		float _zoom{ 1.0f };
 		bool  _axisInit{ false };
 		Vec3  _camPos;
 		Vec3  _camTarget;

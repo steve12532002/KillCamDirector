@@ -55,7 +55,11 @@ namespace KCD
 		float       maxPartnerDistance{ 600.0f };
 		float       smoothing{ 0.10f };   // seconds, camera follow smoothing
 		float       blendOut{ 0.45f };    // seconds to hand the camera back
-		float stopDelay{ 0.30f }; // seconds the killmove must be over before the camera lets go
+		float stopDelay{ 0.50f };
+		float distanceScale{ 1.0f };  // multiplies every preset distance
+		bool  autoZoom{ true };       // move in when the actors are close, out when far apart
+		bool  preferFace{ true };     // random side picks the side that shows your character's face
+		float minHeight{ 35.0f };     // camera never goes lower than this above the actors' feet // seconds the killmove must be over before the camera lets go
 		// letterbox override: -1 = use preset
 		float letterboxOverride{ -1.0f };
 		// [SlowMotion] - applies to every preset

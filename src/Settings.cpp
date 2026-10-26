@@ -47,6 +47,10 @@ namespace KCD
 			s.smoothing = F(ini, "General", "fSmoothing", s.smoothing);
 			s.blendOut = F(ini, "General", "fBlendOut", s.blendOut);
 			s.stopDelay = F(ini, "General", "fStopDelay", s.stopDelay);
+			s.distanceScale = F(ini, "Framing", "fDistanceScale", s.distanceScale);
+			s.autoZoom = ini.GetBoolValue("Framing", "bAutoZoom", s.autoZoom);
+			s.preferFace = ini.GetBoolValue("Framing", "bPreferFace", s.preferFace);
+			s.minHeight = F(ini, "Framing", "fMinHeight", s.minHeight);
 			s.letterboxOverride = F(ini, "Override", "fLetterbox", s.letterboxOverride);
 			s.slowMode = static_cast<int>(ini.GetLongValue("SlowMotion", "iMode", s.slowMode));
 			s.slowScale = F(ini, "SlowMotion", "fScale", s.slowScale);
@@ -76,6 +80,9 @@ namespace KCD
 		ini.SetBoolValue("General", "bEnabled", enabled);
 		ini.SetValue("General", "sPreset", preset.c_str());
 		ini.SetDoubleValue("Override", "fLetterbox", letterboxOverride);
+		ini.SetDoubleValue("Framing", "fDistanceScale", distanceScale);
+		ini.SetBoolValue("Framing", "bAutoZoom", autoZoom);
+		ini.SetBoolValue("Framing", "bPreferFace", preferFace);
 		ini.SetLongValue("SlowMotion", "iMode", slowMode);
 		ini.SetDoubleValue("SlowMotion", "fScale", slowScale);
 		ini.SetDoubleValue("SlowMotion", "fDuration", slowDuration);

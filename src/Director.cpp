@@ -179,10 +179,23 @@ namespace KCD
 		}
 		// paired animation (e.g. modded or sneak killmoves that never set the killmove flag):
 		// only film it when the other actor is an enemy / dying, not hugs or feeding scenes
-		auto partner = FindPartner(a_player);
+		auto        partner = FindPartner(a_player);
+		static bool s_logged = false;
 		if (!partner) {
+			if (!s_logged) {
+				logger::info("Player is in a paired animation but no partner was found nearby - not filming");
+				s_logged = true;
+			}
 			return false;
 		}
+		s_logged = false;
+		bool ok = partner->IsInKillMove() || partner->IsDead() || partner->IsHostileToActor(a_player) || a_player->IsInCombat();
+		static bool s_loggedNo = false;
+		if (!ok && !s_loggedNo) {
+			logger::info("Paired animation with {} is not a fight - not filming", partner->GetDisplayFullName());
+		}
+		s_loggedNo = !ok;
+		return ok;
 		return partner->IsInKillMove() || partner->IsDead() || partner->IsHostileToActor(a_player) || a_player->IsInCombat();
 	}
 
@@ -234,6 +247,7 @@ namespace KCD
 			return;
 		}
 
+		_sinceStop += dt;
 		// hand the camera back smoothly
 		if (_outTimer > 0.0f && s.blendOut > 0.0f) {
 			auto&  w = a_camera->cameraRoot->world;
@@ -257,7 +271,9 @@ namespace KCD
 	void Director::Start(RE::PlayerCharacter* a_player, RE::PlayerCamera* a_camera)
 	{
 		auto& s = Settings::Get();
-		_preset = s.PickPreset();
+		if (!(_sinceStop < 1.5f && _preset)) {
+			_preset = s.PickPreset();
+		}
 		static Preset fallback = [] {
 			Preset p;
 			p.name = "Built-in";
@@ -267,7 +283,20 @@ namespace KCD
 		if (!_preset) {
 			_preset = &fallback;
 		}
+		const bool resume = _sinceStop < 1.5f && _preset != nullptr;
 		_active = true;
+		_hitTriggers = 0;
+		_outTimer = 0;
+		if (resume) {
+			// the killmove flag dropped for a moment between animation states: keep filming the same take
+			a_player->AddAnimationGraphEventSink(AnimSink::Get());
+			if (auto partner = _partner.get()) {
+				partner->AddAnimationGraphEventSink(AnimSink::Get());
+			}
+			logger::info("Killmove camera resume ({:.2f}s gap)", _sinceStop);
+			return;
+		}
+		_zoom = 1.0f;
 		_time = _shotTime = 0;
 		_shot = 0;
 		_hitTriggers = 0;
@@ -295,11 +324,17 @@ namespace KCD
 
 		auto& shot = _preset->shots.front();
 		_side = shot.side == 1 ? 1 : shot.side == -1 ? -1 : (std::uniform_int_distribution<int>(0, 1)(_rng) ? 1 : -1);
+		_sidePending = shot.side == 0 && shot.anchor == 0 && s.preferFace;
 		_snap = shot.blend <= 0.0f;
 		_blendLen = _blendTimer = shot.blend;
 		_axisInit = false;
 		_facingInit = false;
-		logger::info("Killmove camera start: preset '{}', partner {}", _preset->name, _partner ? "found" : "none");
+		{
+			auto pa = _partner.get();
+			logger::info("Killmove camera start: preset '{}', partner {} (killmove flag {}, synced {}, distance {:.0f})",
+				_preset->name, pa ? pa->GetDisplayFullName() : "none", a_player->IsInKillMove(), IsSynced(a_player),
+				pa ? pa->GetPosition().GetDistance(a_player->GetPosition()) : -1.0f);
+		}
 	}
 
 	void Director::Stop(RE::PlayerCamera* a_camera)
@@ -316,6 +351,7 @@ namespace KCD
 			a_camera->GetRuntimeData2().worldFOV = _savedFOV;
 		}
 		_active = false;
+		_sinceStop = 0.0f;
 		_outTimer = Settings::Get().blendOut;
 		if (_forcedThird) {
 			a_camera->ForceFirstPerson();
@@ -340,6 +376,7 @@ namespace KCD
 				_side = ns.side;
 			} else if (ns.side == 0) {
 				_side = std::uniform_int_distribution<int>(0, 1)(_rng) ? 1 : -1;
+				_sidePending = ns.anchor == 0 && s.preferFace;
 			}
 			_snap = ns.blend <= 0.0f;
 			_blendLen = _blendTimer = ns.blend;
@@ -386,9 +423,23 @@ namespace KCD
 			_facingInit = true;
 		}
 
+		if (_sidePending) {
+			// pick the side whose camera ends up more in front of the player's face
+			float midYaw = 0.5f * (shot.yaw0 + shot.yaw1) * kPi / 180.0f;
+			Vec   face{ _facing.x, _facing.y, 0 };
+			float right = RotZ(axis * -1.0f, midYaw).Dot(face);
+			float left = RotZ(axis * -1.0f, -midYaw).Dot(face);
+			_side = right >= left ? 1 : -1;
+			_sidePending = false;
+		}
+
+		float sep = Vec{ O.x - P.x, O.y - P.y, 0 }.Length();
+		float zoomWant = s.autoZoom ? std::clamp((sep + 70.0f) / 150.0f, 0.6f, 1.35f) : 1.0f;
+		_zoom = _zoom + (zoomWant - _zoom) * Damp(a_dt, 1.0f);
+
 		float t = shot.duration > 0 ? Smooth(_shotTime / shot.duration) : 1.0f;
 		float yaw = Lerp(shot.yaw0, shot.yaw1, t) * kPi / 180.0f * static_cast<float>(_side);
-		float dist = Lerp(shot.dist0, shot.dist1, t);
+		float dist = Lerp(shot.dist0, shot.dist1, t) * _zoom * std::max(0.3f, s.distanceScale);
 		float height = Lerp(shot.height0, shot.height1, t);
 		float fov = Lerp(shot.fov0, shot.fov1, t);
 
@@ -401,6 +452,12 @@ namespace KCD
 		Vec dir = RotZ(base * -1.0f, yaw);
 		Vec wantPos = mid + dir * dist + Vec{ 0, 0, height };
 		Vec wantTarget = P + (O - P) * Clamp01(shot.lookAt);
+		float ground = a_player->GetPositionZ();
+		if (partner) {
+			ground = std::min(ground, partner->GetPositionZ());
+		}
+		wantPos.z = std::max(wantPos.z, ground + s.minHeight);
+		wantTarget.z = std::max(wantTarget.z, ground + 20.0f);
 
 		Vec curPos{ _camPos.x, _camPos.y, _camPos.z };
 		Vec curTarget{ _camTarget.x, _camTarget.y, _camTarget.z };
@@ -418,6 +475,7 @@ namespace KCD
 			curPos = curPos + (wantPos - curPos) * k;
 			curTarget = curTarget + (wantTarget - curTarget) * Damp(a_dt, tau * 0.7f);
 		}
+		curPos.z = std::max(curPos.z, ground + s.minHeight * 0.8f);
 		_camPos = { curPos.x, curPos.y, curPos.z };
 		_camTarget = { curTarget.x, curTarget.y, curTarget.z };
 
