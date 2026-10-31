@@ -9,6 +9,7 @@
 #include <windows.h>
 
 #include "SKSEMenuFramework.h"
+#include "Glyph.h"
 #include "Input.h"
 
 #include "Executor.h"
@@ -22,6 +23,29 @@ namespace ED::UI
 		char g_filter[64] = "";
 		bool g_showAll = false;
 
+		// Draws the built-in glyph bitmap as horizontal runs of rectangles
+		void DrawGlyph(ImGuiMCP::ImDrawList* a_dl, float a_x, float a_y, float a_size, float a_grow, ImGuiMCP::ImU32 a_col)
+		{
+			float px = a_size / Glyph::kSize;
+			for (int row = 0; row < Glyph::kSize; ++row) {
+				const char* line = Glyph::kKill[row];
+				for (int col = 0; col < Glyph::kSize;) {
+					if (line[col] != '#') {
+						++col;
+						continue;
+					}
+					int end = col;
+					while (end < Glyph::kSize && line[end] == '#') {
+						++end;
+					}
+					ImGuiMCP::ImDrawListManager::AddRectFilled(a_dl,
+						ImGuiMCP::ImVec2{ a_x + col * px - a_grow, a_y + row * px - a_grow },
+						ImGuiMCP::ImVec2{ a_x + end * px + a_grow, a_y + (row + 1) * px + a_grow }, a_col, 0.0f, 0);
+					col = end;
+				}
+			}
+		}
+
 		void __stdcall DrawMarkers()
 		{
 			auto& s = Settings::Get();
@@ -31,6 +55,11 @@ namespace ED::UI
 			auto markers = Executor::Get().Markers();
 			if (markers.empty()) {
 				return;
+			}
+			static bool loggedDraw = false;
+			if (!loggedDraw) {
+				loggedDraw = true;
+				logger::info("Drawing {} marker(s), first at {:.3f}, {:.3f}", markers.size(), markers[0].x, markers[0].y);
 			}
 			auto io = ImGuiMCP::GetIO();
 			if (!io) {
@@ -43,8 +72,15 @@ namespace ED::UI
 			float pulse = 0.55f + 0.45f * std::sin(t * 6.0f);
 			auto  alpha = static_cast<int>(255 * pulse);
 			const char* text = s.markerText.c_str();
+			// the menu framework's font has no CJK glyphs, so the default text uses a built-in bitmap
+			bool useGlyph = s.markerText == "\xE6\xAE\xBA" || s.markerText.empty();
 			for (auto& m : markers) {
 				ImGuiMCP::ImVec2 pos{ m.x * w + s.markerOffsetX - s.markerSize * 0.5f, m.y * h + s.markerOffsetY - s.markerSize * 0.5f };
+				if (useGlyph) {
+					DrawGlyph(dl, pos.x, pos.y, s.markerSize, s.markerSize * 0.05f, IM_COL32(40, 0, 0, alpha * 2 / 3));
+					DrawGlyph(dl, pos.x, pos.y, s.markerSize, 0.0f, IM_COL32(s.markerR, s.markerG, s.markerB, alpha));
+					continue;
+				}
 				// soft dark outline so the pale red reads on bright backgrounds
 				for (int dx = -1; dx <= 1; ++dx) {
 					for (int dy = -1; dy <= 1; ++dy) {
@@ -178,6 +214,7 @@ namespace ED::UI
 				changed |= ImGuiMCP::SliderFloat("Marker size", &s.markerSize, 12.0f, 64.0f, "%.0f px");
 				changed |= ImGuiMCP::SliderFloat("Marker offset X", &s.markerOffsetX, -200.0f, 200.0f, "%.0f px");
 				changed |= ImGuiMCP::SliderFloat("Marker offset Y", &s.markerOffsetY, -200.0f, 200.0f, "%.0f px");
+				changed |= ImGuiMCP::SliderFloat("Marker height above head", &s.markerHeight, 0.0f, 80.0f, "%.0f units");
 			}
 			ImGuiMCP::Text("Executable right now: %d", static_cast<int>(Executor::Get().MarkedCount()));
 			if (!Executor::Get().LastResult().empty()) {

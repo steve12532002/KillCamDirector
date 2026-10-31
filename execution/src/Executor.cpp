@@ -200,8 +200,21 @@ namespace ED
 				}
 				p.z += s.markerHeight;
 				float x = 0, y = 0, z = 0;
-				if (RE::NiCamera::WorldPtToScreenPt3(rt.worldToCam, rt2.port, p, x, y, z, 1e-5f) && z > 0.0f &&
-					x > -0.1f && x < 1.1f && y > -0.1f && y < 1.1f) {
+				RE::NiCamera::WorldPtToScreenPt3(rt.worldToCam, rt2.port, p, x, y, z, 1e-5f);
+				// in front of the camera? (the sign of z differs between setups, so test it directly)
+				auto       camPos = cam->world.translate;
+				auto       player = RE::PlayerCharacter::GetSingleton();
+				RE::NiPoint3 fwd = player ? player->GetPosition() - camPos : RE::NiPoint3{};
+				fwd.z = 0.0f;
+				RE::NiPoint3 to = p - camPos;
+				to.z = 0.0f;
+				bool front = fwd.Length() < 1.0f || fwd.Dot(to) > 0.0f;
+				static int logged = 0;
+				if (logged < 5) {
+					++logged;
+					logger::info("Marker for {}: screen x {:.3f} y {:.3f} z {:.3f}, in front {}", a->GetDisplayFullName(), x, y, z, front);
+				}
+				if (front && x > -0.1f && x < 1.1f && y > -0.1f && y < 1.1f) {
 					out.push_back({ x, 1.0f - y });
 				}
 			}

@@ -79,6 +79,7 @@ namespace ED
 		ini.SetBoolValue("Marker", "bEnabled", markerEnabled);
 		ini.SetDoubleValue("Marker", "fSize", markerSize);
 		ini.SetDoubleValue("Marker", "fOffsetX", markerOffsetX);
+		ini.SetDoubleValue("Marker", "fHeight", markerHeight);
 		ini.SetDoubleValue("Marker", "fOffsetY", markerOffsetY);
 		if (ini.SaveFile(kUserIni) < 0) {
 			logger::warn("Could not save {}", kUserIni);
