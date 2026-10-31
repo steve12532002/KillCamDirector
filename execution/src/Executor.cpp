@@ -69,6 +69,78 @@ namespace ED
 		};
 	}
 
+	namespace
+	{
+		std::string Lower(std::string a_s)
+		{
+			std::transform(a_s.begin(), a_s.end(), a_s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return a_s;
+		}
+
+		// conditions that only gate *random* selection, not whether the pair can work
+		bool IgnoredCondition(const RE::TESConditionItem* a_item)
+		{
+			using F = RE::FUNCTION_DATA::FunctionID;
+			auto fn = a_item->data.functionData.function.get();
+			if (fn == F::kGetRandomPercent || fn == F::kGetGlobalValue) {
+				return true;
+			}
+			// our own "not the player" block
+			if (fn == F::kGetIsID && a_item->data.object == RE::CONDITIONITEMOBJECT::kSelf &&
+				a_item->data.functionData.params[0] == RE::TESForm::LookupByID(0x7)) {
+				return true;
+			}
+			return false;
+		}
+
+		// Evaluates an idle and all its parents with the player as subject and the victim as target.
+		// OR items bind to their neighbours, AND separates groups - the same rule the game uses.
+		bool IdleConditionsPass(RE::TESIdleForm* a_idle, RE::Actor* a_subject, RE::Actor* a_target, int& a_failFn)
+		{
+			int guard = 0;
+			for (auto i = a_idle; i && guard < 32; i = i->parentIdle, ++guard) {
+				bool groupOk = false;
+				bool groupHasItems = false;
+				for (auto item = i->conditions.head; item; item = item->next) {
+					bool ok = true;
+					if (!IgnoredCondition(item)) {
+						RE::ConditionCheckParams params(a_subject, a_target);
+						ok = item->IsTrue(params);
+					}
+					groupOk = groupOk || ok;
+					groupHasItems = true;
+					if (!item->data.flags.isOR) {
+						if (!groupOk) {
+							a_failFn = static_cast<int>(item->data.functionData.function.get());
+							return false;
+						}
+						groupOk = false;
+						groupHasItems = false;
+					}
+				}
+				if (groupHasItems && !groupOk) {
+					a_failFn = -1;
+					return false;
+				}
+			}
+			return true;
+		}
+
+		std::string RaceOf(RE::Actor* a_actor)
+		{
+			auto race = a_actor->GetRace();
+			const char* id = race ? race->GetFormEditorID() : nullptr;
+			return Lower(id && *id ? id : (race && race->GetName() ? race->GetName() : ""));
+		}
+
+		void ClearKillMove(RE::Actor* a_actor)
+		{
+			if (a_actor) {
+				a_actor->GetActorRuntimeData().boolFlags.reset(RE::Actor::BOOL_FLAGS::kIsInKillMove);
+			}
+		}
+	}
+
 	void Executor::InstallHooks()
 	{
 		REL::Relocation<std::uintptr_t> target{ RELOCATION_ID(49852, 50784) };
@@ -312,6 +384,35 @@ namespace ED
 			Notify("\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE7\x94\xA8\xE7\x9A\x84\xE7\xB5\x82\xE7\xB5\x90\xE6\x8A\x80");  // 沒有可用的終結技
 			return;
 		}
+		// keep only animations the game itself would allow here (weapon, angle, victim race...);
+		// random-chance gates and our own player block are ignored
+		{
+			const std::string      race = RaceOf(victim);
+			std::vector<Finisher*> valid;
+			int                    logged = 0;
+			for (auto f : cands) {
+				if (!f->raceWord.empty() && race.find(f->raceWord) == std::string::npos) {
+					continue;
+				}
+				int  failFn = 0;
+				bool any = false;
+				for (auto idle : f->idles) {
+					if (IdleConditionsPass(idle, a_player, victim, failFn)) {
+						any = true;
+						break;
+					}
+				}
+				if (any) {
+					valid.push_back(f);
+				} else if (logged++ < 40) {
+					logger::info("  skip {} (condition function {} failed)", f->event, failFn);
+				}
+			}
+			logger::info("  {} of {} animations fit this situation", valid.size(), cands.size());
+			if (!valid.empty()) {
+				cands = std::move(valid);
+			}
+		}
 		if (s.preferWeaponMatch) {
 			std::vector<Finisher*> matched;
 			for (auto f : cands) {
@@ -428,6 +529,13 @@ namespace ED
 			auto f = _attempt.candidates[_attempt.index++];
 			++_attempt.tries;
 			auto idle = f->idles.front();
+			for (auto cand : f->idles) {
+				int failFn = 0;
+				if (IdleConditionsPass(cand, a_player, victim.get(), failFn)) {
+					idle = cand;
+					break;
+				}
+			}
 			bool ok = false;
 			{
 				ConditionStrip strip(idle);
@@ -469,7 +577,9 @@ namespace ED
 		}
 
 		// 2. both sides must be in the pair - the player alone playing it means it failed
-		bool victimIn = victim && (victim->IsInKillMove() || IsSynced(victim.get()));
+		// the victim's kill-move flag is set as soon as the idle is sent, even when its graph never follows,
+		// so only the synced graph variable proves the victim is really in the pair
+		bool victimIn = victim && IsSynced(victim.get());
 		bool playerIn = a_player->IsInKillMove() || IsSynced(a_player);
 		if (!_attempt.started) {
 			_attempt.timer += a_dt;
@@ -481,16 +591,17 @@ namespace ED
 				}
 				return;
 			}
-			if (_attempt.timer > 0.6f) {
+			if (_attempt.timer > 0.8f) {
 				if (_attempt.current) {
 					_attempt.current->fails[_attempt.weaponClass]++;
-					logger::info("  {} did not start (player {}, victim {})", _attempt.current->event, playerIn, victimIn);
+					logger::info("  {} did not pair (player in anim {}, player synced {}, victim killmove flag {}, victim synced {})",
+						_attempt.current->event, a_player->IsInKillMove(), IsSynced(a_player), victim && victim->IsInKillMove(), victimIn);
 				}
-				// stop a one-sided animation before trying another
-				if (playerIn || a_player->IsInKillMove()) {
-					a_player->NotifyAnimationGraph(kDefault);
-				}
+				// stop the one-sided animation and the stuck kill-move flags before trying another
+				a_player->NotifyAnimationGraph(kDefault);
+				ClearKillMove(a_player);
 				if (victim) {
+					ClearKillMove(victim.get());
 					PrepareVictim(victim.get());
 				}
 				if (_attempt.test || !TryNext(a_player)) {
@@ -513,6 +624,9 @@ namespace ED
 			return;
 		}
 		bool canKill = victim && s.ensureKill && !victim->IsDead() && (s.allowEssential || !victim->IsEssential());
+		if (victim && !victim->IsDead()) {
+			ClearKillMove(victim.get());  // a leftover flag makes them immune to damage
+		}
 		if (canKill && _attempt.killTimer < 0.0f) {
 			// damage instead of an instant kill: the normal death path ragdolls them instead of leaving a standing corpse
 			logger::info("  victim survived the animation - finishing them");
@@ -528,6 +642,7 @@ namespace ED
 				return;
 			}
 			logger::info("  still alive - forcing death");
+			victim->NotifyAnimationGraph(kDefault);
 			victim->KillImmediate();
 		}
 		_attempt.active = false;

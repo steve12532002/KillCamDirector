@@ -38,6 +38,7 @@ namespace ED
 		Category                       autoCategory{ Category::kFront };
 		int                            userCategory{ -1 };  // -1 = automatic
 		bool                           creature{ false };
+		std::string                    raceWord;  // humanoid race the victim must be (falmer, draugr), empty = any
 		bool                           killmove{ false };
 		bool                           femaleAttacker{ false };
 		bool                           maleAttacker{ false };

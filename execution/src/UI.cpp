@@ -284,15 +284,16 @@ namespace ED::UI
 			bool changed = false;
 			const char* cats[] = { "Front", "Back", "Sneak", "Bleedout", "Any" };
 			auto flags = ImGuiMCP::ImGuiTableFlags_Borders | ImGuiMCP::ImGuiTableFlags_RowBg | ImGuiMCP::ImGuiTableFlags_Resizable | ImGuiMCP::ImGuiTableFlags_SizingFixedFit;
-			if (ImGuiMCP::BeginTable("finishers", 8, flags)) {
+			if (ImGuiMCP::BeginTable("finishers", 9, flags)) {
 				ImGuiMCP::TableSetupColumn("On");
+				ImGuiMCP::TableSetupColumn("Try");
 				ImGuiMCP::TableSetupColumn("Animation event");
 				ImGuiMCP::TableSetupColumn("Chance");
 				ImGuiMCP::TableSetupColumn("Category");
 				ImGuiMCP::TableSetupColumn("Needs");
 				ImGuiMCP::TableSetupColumn("From");
 				ImGuiMCP::TableSetupColumn("OK / Fails");
-				ImGuiMCP::TableSetupColumn("");
+				ImGuiMCP::TableSetupColumn("Stats");
 				ImGuiMCP::TableHeadersRow();
 				for (auto& f : all) {
 					if (!g_showAll && (!f.killmove || f.creature)) {
@@ -321,6 +322,14 @@ namespace ED::UI
 						}
 					}
 					ImGuiMCP::TableNextColumn();
+					if (ImGuiMCP::Button("Test")) {
+						Executor::Get().RequestTest(f.key);
+					}
+					ImGuiMCP::SameLine();
+					if (ImGuiMCP::Button(Executor::Get().ForcedNext() == f.key ? "Queued" : "Next")) {
+						Executor::Get().ForceNext(f.key);
+					}
+					ImGuiMCP::TableNextColumn();
 					ImGuiMCP::Text("%s", f.event.c_str());
 					ImGuiMCP::TableNextColumn();
 					ImGuiMCP::SetNextItemWidth(110.0f);
@@ -338,6 +347,7 @@ namespace ED::UI
 					}
 					ImGuiMCP::TableNextColumn();
 					int c = static_cast<int>(f.GetCategory());
+					ImGuiMCP::SetNextItemWidth(120.0f);
 					if (ImGuiMCP::Combo("##cat", &c, cats, 5)) {
 						f.userCategory = c;
 						changed = true;
@@ -360,15 +370,6 @@ namespace ED::UI
 					ImGuiMCP::TableNextColumn();
 					ImGuiMCP::Text("%d / %d %d %d %d %d", f.success, f.fails[0], f.fails[1], f.fails[2], f.fails[3], f.fails[4]);
 					ImGuiMCP::TableNextColumn();
-					bool isNext = Executor::Get().ForcedNext() == f.key;
-					if (ImGuiMCP::Button(isNext ? "queued" : "Next")) {
-						Executor::Get().ForceNext(f.key);
-					}
-					ImGuiMCP::SameLine();
-					if (ImGuiMCP::Button("Test")) {
-						Executor::Get().RequestTest(f.key);
-					}
-					ImGuiMCP::SameLine();
 					if (ImGuiMCP::Button("Reset")) {
 						f.fails.fill(0);
 						f.success = 0;

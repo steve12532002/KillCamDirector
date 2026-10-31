@@ -163,6 +163,11 @@ namespace ED
 			}
 			f.killmove = Contains(text, "kill");
 			f.creature = LooksLikeCreature(Lower(f.event + " " + f.chain));
+			for (auto w : { "falmer", "draugr" }) {
+				if (Contains(Lower(f.event + " " + f.chain + " " + f.editorID), w)) {
+					f.raceWord = w;
+				}
+			}
 			if (Contains(text, "sneak")) {
 				f.autoCategory = Category::kSneak;
 			} else if (Contains(text, "back") || Contains(text, "behind")) {
