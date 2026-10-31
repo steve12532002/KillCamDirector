@@ -25,7 +25,7 @@ namespace ED
 			"sabre", "sabercat", "wolf", "chaurus", "horker", "spriggan", "dwarven", "centurion", "sphere", "mammoth",
 			"horse", "netch", "lurker", "seeker", "gargoyle", "hagraven", "skeever", "mudcrab", "deathhound", "riekling",
 			"ashhopper", "creature", "frostbite", "atronach", "wisp", "boar", "husky", "dog", "goat", "elk", "deer",
-			"fox", "cow", "slaughterfish", "ashspawn", "lurker", "karstaag", "benthic", "dragonpriest" };
+			"fox", "cow", "slaughterfish", "ashspawn", "lurker", "karstaag", "benthic", "dragonpriest", "scrib" };
 
 		bool LooksLikeCreature(const std::string& a_text)
 		{
@@ -175,6 +175,20 @@ namespace ED
 							f.targetSpecific = true;
 						}
 					}
+				}
+			}
+			// weapon from the name when no tags say otherwise (h2h = unarmed, dw = dual wield...)
+			{
+				std::string ev = Lower(f.event + " " + f.editorID);
+				std::array<bool, kWeaponClassCount> ok{};
+				bool any = false;
+				if (Contains(ev, "h2h") || Contains(ev, "unarmed")) { ok[kUnarmed] = true; any = true; }
+				if (Contains(ev, "1hm") || Contains(ev, "1hw") || Contains(ev, "dw") || Contains(ev, "dualwield") || Contains(ev, "1h_")) { ok[kOneHand] = true; any = true; }
+				if (Contains(ev, "2hm") || Contains(ev, "2hw") || Contains(ev, "2h_")) { ok[kTwoHand] = true; any = true; }
+				if (Contains(ev, "bow")) { ok[kRanged] = true; any = true; }
+				if (any) {
+					f.hasWeaponTags = true;
+					f.weaponOk = ok;
 				}
 			}
 			for (auto w : { "falmer", "draugr" }) {

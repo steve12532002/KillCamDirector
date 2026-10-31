@@ -206,6 +206,7 @@ namespace ED::UI
 			changed |= ImGuiMCP::Checkbox("Stop random killmoves when YOU attack (NPC killmoves stay)", &s.blockRandomPlayerKillmoves);
 			changed |= ImGuiMCP::Checkbox("Allow essential / protected NPCs", &s.allowEssential);
 			changed |= ImGuiMCP::Checkbox("Prefer finishers made for your weapon", &s.preferWeaponMatch);
+			changed |= ImGuiMCP::Checkbox("Cancel at once when the enemy does not follow (turn off if you get stuck)", &s.cancelUnpaired);
 
 			ImGuiMCP::SeparatorText("Executable enemies");
 			changed |= ImGuiMCP::Checkbox("Stagger them while executable", &s.staggerEnabled);

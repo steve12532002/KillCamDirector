@@ -47,6 +47,7 @@ namespace ED
 
 		// [Debug]
 		bool verbose{ false };
+		bool cancelUnpaired{ true };  // stop the player's animation when the victim does not follow
 
 	private:
 		Settings() = default;

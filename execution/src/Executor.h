@@ -81,6 +81,7 @@ namespace ED
 		void        PrepareVictim(RE::Actor* a_victim);
 		static bool VictimBusy(RE::Actor* a_victim);
 		void        Finish(bool a_ok, const char* a_msg);
+		void        ReleasePair(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_cancelAnim);
 		void        UpdateAttempt(RE::PlayerCharacter* a_player, float a_dt);
 		bool        TryNext(RE::PlayerCharacter* a_player);
 		bool        IsExecutable(RE::PlayerCharacter* a_player, RE::Actor* a_actor) const;

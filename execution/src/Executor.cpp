@@ -392,11 +392,12 @@ namespace ED
 			Notify("\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE7\x94\xA8\xE7\x9A\x84\xE7\xB5\x82\xE7\xB5\x90\xE6\x8A\x80");  // 沒有可用的終結技
 			return;
 		}
-		// keep only animations the game itself would allow here (weapon, angle, victim race...);
-		// random-chance gates and our own player block are ignored
+		// Race checks are hard: an animation made for another race never pairs (the victim's graph ignores it).
+		// Other idle tree conditions (weapon, angle...) are only a preference, since some of them never pass
+		// outside a real killing blow.
 		{
 			const std::string      race = RaceOf(victim);
-			std::vector<Finisher*> valid;
+			std::vector<Finisher*> raceOk, valid;
 			int                    logged = 0;
 			for (auto f : cands) {
 				if (!f->raceWord.empty() && race.find(f->raceWord) == std::string::npos) {
@@ -404,21 +405,34 @@ namespace ED
 				}
 				int  failFn = 0;
 				bool any = false;
+				bool raceFail = true;
 				for (auto idle : f->idles) {
 					if (IdleConditionsPass(idle, a_player, victim, failFn)) {
 						any = true;
+						raceFail = false;
 						break;
 					}
+					if (failFn != static_cast<int>(RE::FUNCTION_DATA::FunctionID::kGetIsRace) &&
+						failFn != static_cast<int>(RE::FUNCTION_DATA::FunctionID::kGetIsID)) {
+						raceFail = false;
+					}
 				}
+				if (raceFail) {
+					if (logged++ < 20) {
+						logger::info("  skip {} (made for another race)", f->event);
+					}
+					continue;
+				}
+				raceOk.push_back(f);
 				if (any) {
 					valid.push_back(f);
-				} else if (logged++ < 40) {
-					logger::info("  skip {} (condition function {} failed)", f->event, failFn);
 				}
 			}
-			logger::info("  {} of {} animations fit this situation", valid.size(), cands.size());
-			if (!valid.empty()) {
-				cands = std::move(valid);
+			logger::info("  {} animations for this race, {} pass all of their conditions", raceOk.size(), valid.size());
+			cands = !valid.empty() ? std::move(valid) : std::move(raceOk);
+			if (cands.empty()) {
+				Notify("\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE7\x94\xA8\xE7\x9A\x84\xE7\xB5\x82\xE7\xB5\x90\xE6\x8A\x80");  // 沒有可用的終結技
+				return;
 			}
 		}
 		if (s.preferWeaponMatch) {
@@ -458,8 +472,6 @@ namespace ED
 				cands.push_back(f);
 			}
 		}
-		// ones that have never failed with this weapon first
-		std::stable_sort(cands.begin(), cands.end(), [wc](Finisher* a, Finisher* b) { return a->fails[wc] < b->fails[wc]; });
 		if (!_forcedNext.empty()) {
 			if (auto f = Catalog::Get().Find(_forcedNext)) {
 				cands.insert(cands.begin(), f);
@@ -614,15 +626,24 @@ namespace ED
 		bool victimIn = IsSynced(victim.get());
 		bool playerIn = a_player->IsInKillMove() || IsSynced(a_player);
 
-		// 2. one-sided animation: never cut it (that leaves both actors stuck) - let it play out, then clean up
+		// 2. after cancelling a one-sided animation, make sure the player is really released
 		if (_attempt.oneSided) {
 			_attempt.timer += a_dt;
-			if (playerIn && _attempt.timer < 12.0f) {
+			if (playerIn && _attempt.timer < 1.5f) {
+				if (std::fmod(_attempt.timer, 0.25f) < a_dt) {
+					ReleasePair(a_player, victim.get(), s.cancelUnpaired);
+				}
 				return;
 			}
-			ClearKillMove(a_player);
-			ClearKillMove(victim.get());
-			Finish(false, "\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");
+			ReleasePair(a_player, victim.get(), false);
+			_attempt.oneSided = false;
+			_attempt.timer = 0;
+			if (!s.cancelUnpaired && playerIn) {
+				return;  // (cancel off) still playing alone: keep waiting in this state
+			}
+			if (_attempt.test || !TryNext(a_player)) {
+				Finish(false, "\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");  // 處決動畫啟動失敗
+			}
 			return;
 		}
 
@@ -636,7 +657,10 @@ namespace ED
 				}
 				return;
 			}
-			if (_attempt.timer < 0.8f) {
+			// a working pair syncs the victim within a frame or two; the player playing alone for longer means
+			// the victim's graph ignored it - stop it at once so it is barely visible, then try another
+			float limit = playerIn ? 0.25f : 0.8f;
+			if (_attempt.timer < limit) {
 				return;
 			}
 			if (_attempt.current) {
@@ -645,13 +669,13 @@ namespace ED
 					_attempt.current->event, a_player->IsInKillMove(), IsSynced(a_player), victim->IsInKillMove(), victimIn);
 			}
 			if (playerIn) {
+				ReleasePair(a_player, victim.get(), s.cancelUnpaired);
 				_attempt.oneSided = true;
 				_attempt.timer = 0;
 				return;
 			}
 			// nothing started at all: safe to try another one right away
-			ClearKillMove(a_player);
-			ClearKillMove(victim.get());
+			ReleasePair(a_player, victim.get(), false);
 			PrepareVictim(victim.get());
 			if (_attempt.test || !TryNext(a_player)) {
 				Finish(false, "\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");
@@ -678,6 +702,21 @@ namespace ED
 			}
 		}
 		Finish(true, nullptr);
+	}
+
+	void Executor::ReleasePair(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_cancelAnim)
+	{
+		if (a_cancelAnim) {
+			// end the paired state the way the animations themselves do, then return to the default state
+			static const RE::BSFixedString kPairEnd("PairEnd");
+			static const RE::BSFixedString kDefault("IdleForceDefaultState");
+			a_player->NotifyAnimationGraph(kPairEnd);
+			a_player->NotifyAnimationGraph(kDefault);
+		}
+		ClearKillMove(a_player);
+		if (a_victim) {
+			ClearKillMove(a_victim);
+		}
 	}
 
 	void Executor::Finish(bool a_ok, const char* a_msg)

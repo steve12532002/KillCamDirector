@@ -43,6 +43,7 @@ namespace ED
 			s.markerOffsetX = F(ini, "Marker", "fOffsetX", s.markerOffsetX);
 			s.markerOffsetY = F(ini, "Marker", "fOffsetY", s.markerOffsetY);
 			s.markerHeight = F(ini, "Marker", "fHeight", s.markerHeight);
+			s.cancelUnpaired = ini.GetBoolValue("General", "bCancelUnpaired", s.cancelUnpaired);
 			s.markerR = static_cast<int>(ini.GetLongValue("Marker", "iRed", s.markerR));
 			s.markerG = static_cast<int>(ini.GetLongValue("Marker", "iGreen", s.markerG));
 			s.markerB = static_cast<int>(ini.GetLongValue("Marker", "iBlue", s.markerB));
@@ -68,6 +69,7 @@ namespace ED
 		CSimpleIniA ini;
 		ini.SetUnicode();
 		ini.SetBoolValue("General", "bEnabled", enabled);
+		ini.SetBoolValue("General", "bCancelUnpaired", cancelUnpaired);
 		ini.SetLongValue("General", "iExecuteKey", static_cast<long>(executeKey));
 		ini.SetDoubleValue("General", "fHealthThreshold", healthThreshold);
 		ini.SetDoubleValue("General", "fExecuteRange", executeRange);
