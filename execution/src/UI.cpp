@@ -58,6 +58,89 @@ namespace ED::UI
 			}
 		}
 
+		// The menu framework swallows game input while it is open, so the new key is read
+		// straight from Windows while the Settings page is being drawn.
+		std::array<bool, 256> g_prevDown{};
+
+		std::uint32_t VkToCode(int a_vk)
+		{
+			switch (a_vk) {
+			case VK_RBUTTON: return 257;
+			case VK_MBUTTON: return 258;
+			case VK_XBUTTON1: return 259;
+			case VK_XBUTTON2: return 260;
+			default: break;
+			}
+			UINT sc = ::MapVirtualKeyW(static_cast<UINT>(a_vk), MAPVK_VK_TO_VSC_EX);
+			if (!sc) {
+				return 0;
+			}
+			std::uint32_t code = sc & 0xFF;
+			if ((sc & 0xFF00) == 0xE000) {
+				code |= 0x80;
+			}
+			// keys Windows reports without the extended bit but DirectInput keeps apart
+			switch (a_vk) {
+			case VK_RCONTROL: return 0x9D;
+			case VK_RMENU: return 0xB8;
+			case VK_DIVIDE: return 0xB5;
+			case VK_INSERT: return 0xD2;
+			case VK_DELETE: return 0xD3;
+			case VK_HOME: return 0xC7;
+			case VK_END: return 0xCF;
+			case VK_PRIOR: return 0xC9;
+			case VK_NEXT: return 0xD1;
+			case VK_UP: return 0xC8;
+			case VK_DOWN: return 0xD0;
+			case VK_LEFT: return 0xCB;
+			case VK_RIGHT: return 0xCD;
+			default: return code;
+			}
+		}
+
+		void SnapshotKeys()
+		{
+			for (int vk = 1; vk < 256; ++vk) {
+				g_prevDown[vk] = (::GetAsyncKeyState(vk) & 0x8000) != 0;
+			}
+		}
+
+		std::chrono::steady_clock::time_point g_lastPoll{};
+
+		void PollCapture(Settings& s)
+		{
+			// page was closed and reopened mid-capture: don't take the key that reopened the menu
+			auto now = std::chrono::steady_clock::now();
+			bool stale = now - g_lastPoll > std::chrono::milliseconds(500);
+			g_lastPoll = now;
+			if (stale) {
+				SnapshotKeys();
+				return;
+			}
+			for (int vk = 1; vk < 256; ++vk) {
+				bool down = (::GetAsyncKeyState(vk) & 0x8000) != 0;
+				bool pressed = down && !g_prevDown[vk];
+				g_prevDown[vk] = down;
+				if (!pressed) {
+					continue;
+				}
+				// left mouse clicks the UI; generic shift/ctrl/alt duplicate their left/right versions
+				if (vk == VK_LBUTTON || vk == VK_SHIFT || vk == VK_CONTROL || vk == VK_MENU) {
+					continue;
+				}
+				if (vk == VK_ESCAPE) {
+					Input::CancelCapture();
+					return;
+				}
+				if (auto code = VkToCode(vk)) {
+					s.executeKey = code;
+					s.SaveUser();
+					Input::CancelCapture();
+					return;
+				}
+			}
+		}
+
 		void __stdcall RenderSettings()
 		{
 			auto& s = Settings::Get();
@@ -66,10 +149,13 @@ namespace ED::UI
 			ImGuiMCP::Text("Execute key: %s  (code %u)", Input::KeyName(s.executeKey), s.executeKey);
 			ImGuiMCP::SameLine();
 			if (Input::IsCapturing()) {
+				PollCapture(s);
 				if (ImGuiMCP::Button("Press any key... (Esc = cancel)")) {
 					Input::CancelCapture();
 				}
 			} else if (ImGuiMCP::Button("Change key")) {
+				SnapshotKeys();
+				g_lastPoll = std::chrono::steady_clock::now();
 				Input::BeginCapture();
 			}
 			float pct = s.healthThreshold * 100.0f;

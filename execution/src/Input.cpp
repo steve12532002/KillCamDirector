@@ -39,18 +39,6 @@ namespace ED::Input
 					}
 					// keyboard keys use their scan code, mouse buttons 256 + button (SKSE convention)
 					std::uint32_t code = b->GetIDCode() + (dev == RE::INPUT_DEVICE::kMouse ? 256u : 0u);
-					if (g_capturing) {
-						// left mouse is how you click the capture button, Escape cancels
-						if (code == 256u) {
-							continue;
-						}
-						if (code != 0x01) {
-							s.executeKey = code;
-							s.SaveUser();
-						}
-						g_capturing = false;
-						continue;
-					}
 					auto ui = RE::UI::GetSingleton();
 					if (ui && (ui->GameIsPaused() || ui->IsMenuOpen(RE::Console::MENU_NAME))) {
 						continue;
