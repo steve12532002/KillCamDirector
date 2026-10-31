@@ -287,6 +287,13 @@ namespace ED
 					}
 				}
 			}
+			if (j.contains("chance")) {
+				for (auto& [k, v] : j["chance"].items()) {
+					if (auto f = Find(k)) {
+						f->chance = std::clamp(v.get<int>(), 0, 100);
+					}
+				}
+			}
 			if (j.contains("category")) {
 				for (auto& [k, v] : j["category"].items()) {
 					if (auto f = Find(k)) {
@@ -317,10 +324,14 @@ namespace ED
 		nlohmann::json j;
 		j["disabled"] = nlohmann::json::array();
 		j["category"] = nlohmann::json::object();
+		j["chance"] = nlohmann::json::object();
 		j["stats"] = nlohmann::json::object();
 		for (auto& f : _list) {
 			if (!f.enabled) {
 				j["disabled"].push_back(f.key);
+			}
+			if (f.chance != 100) {
+				j["chance"][f.key] = f.chance;
 			}
 			if (f.userCategory >= 0) {
 				j["category"][f.key] = f.userCategory;

@@ -42,6 +42,7 @@ namespace ED
 		bool                           hasWeaponTags{ false };
 		std::array<bool, kWeaponClassCount> weaponOk{ true, true, true, true, true };
 		bool                           enabled{ true };
+		int                            chance{ 100 };  // relative chance (weight) of being picked, 0 = never at random
 		int                            success{ 0 };
 		std::array<int, kWeaponClassCount> fails{};
 

@@ -110,7 +110,9 @@ namespace ED::UI
 			ImGuiMCP::TextWrapped(
 				"Every paired animation the game has loaded. Untick to stop using it, change its category if it was guessed wrong, "
 				"or press Next to use it on your next execution. 'Fails' counts animations that refused to start per weapon "
-				"(Unarmed/1H/2H/Ranged/Other) - those are skipped automatically for that weapon after 3 failures.");
+				"(Unarmed/1H/2H/Ranged/Other) - those are skipped automatically for that weapon after 3 failures. "
+				"'Chance' is how likely an animation is picked compared with the others that fit (100 = normal, 50 = half as often, "
+				"0 = never at random, only with Next).");
 			ImGuiMCP::InputText("Filter", g_filter, sizeof(g_filter));
 			ImGuiMCP::Checkbox("Also show non-killmove and creature animations", &g_showAll);
 			std::string filter = g_filter;
@@ -119,9 +121,10 @@ namespace ED::UI
 			bool changed = false;
 			const char* cats[] = { "Front", "Back", "Sneak", "Bleedout", "Any" };
 			auto flags = ImGuiMCP::ImGuiTableFlags_Borders | ImGuiMCP::ImGuiTableFlags_RowBg | ImGuiMCP::ImGuiTableFlags_Resizable | ImGuiMCP::ImGuiTableFlags_SizingFixedFit;
-			if (ImGuiMCP::BeginTable("finishers", 7, flags)) {
+			if (ImGuiMCP::BeginTable("finishers", 8, flags)) {
 				ImGuiMCP::TableSetupColumn("On");
 				ImGuiMCP::TableSetupColumn("Animation event");
+				ImGuiMCP::TableSetupColumn("Chance");
 				ImGuiMCP::TableSetupColumn("Category");
 				ImGuiMCP::TableSetupColumn("Needs");
 				ImGuiMCP::TableSetupColumn("From");
@@ -146,6 +149,9 @@ namespace ED::UI
 					changed |= ImGuiMCP::Checkbox("##on", &f.enabled);
 					ImGuiMCP::TableNextColumn();
 					ImGuiMCP::Text("%s", f.event.c_str());
+					ImGuiMCP::TableNextColumn();
+					ImGuiMCP::SetNextItemWidth(110.0f);
+					changed |= ImGuiMCP::SliderInt("##chance", &f.chance, 0, 100, "%d%%");
 					ImGuiMCP::TableNextColumn();
 					int c = static_cast<int>(f.GetCategory());
 					if (ImGuiMCP::Combo("##cat", &c, cats, 5)) {

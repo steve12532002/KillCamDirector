@@ -310,7 +310,32 @@ namespace ED
 				cands = std::move(matched);
 			}
 		}
-		std::shuffle(cands.begin(), cands.end(), _rng);
+		// chance 0 = only when queued with Next (unless nothing else is left)
+		{
+			std::vector<Finisher*> allowed;
+			for (auto f : cands) {
+				if (f->chance > 0) {
+					allowed.push_back(f);
+				}
+			}
+			if (!allowed.empty()) {
+				cands = std::move(allowed);
+			}
+		}
+		// weighted random order: key = u^(1/w), highest first (Efraimidis-Spirakis)
+		{
+			std::uniform_real_distribution<double> u01(1e-9, 1.0);
+			std::vector<std::pair<double, Finisher*>> keyed;
+			for (auto f : cands) {
+				double w = std::max(1, f->chance) / 100.0;
+				keyed.emplace_back(std::pow(u01(_rng), 1.0 / w), f);
+			}
+			std::sort(keyed.begin(), keyed.end(), [](auto& a, auto& b) { return a.first > b.first; });
+			cands.clear();
+			for (auto& [k, f] : keyed) {
+				cands.push_back(f);
+			}
+		}
 		// ones that have never failed with this weapon first
 		std::stable_sort(cands.begin(), cands.end(), [wc](Finisher* a, Finisher* b) { return a->fails[wc] < b->fails[wc]; });
 		if (!_forcedNext.empty()) {
