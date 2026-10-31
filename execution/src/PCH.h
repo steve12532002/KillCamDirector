@@ -13,6 +13,7 @@
 #include <mutex>
 #include <optional>
 #include <random>
+#include <deque>
 #include <string>
 #include <vector>
 #include <unordered_map>

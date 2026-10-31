@@ -69,6 +69,8 @@ namespace ED
 			float                  killTimer{ -1 };
 			bool                   test{ false };
 			bool                   oneSided{ false };
+			int                    refusals{ 0 };
+			std::vector<Finisher*> refusedList;
 			int                    weaponClass{ 0 };
 		};
 
@@ -99,6 +101,7 @@ namespace ED
 		std::mutex                                  _testLock;
 		std::string                                 _testKey;
 		std::string                                 _lastResult;
+		std::deque<Finisher*>                       _recent;
 		std::mt19937                                _rng{ std::random_device{}() };
 	};
 }

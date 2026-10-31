@@ -371,13 +371,14 @@ namespace ED
 		const bool     humanVictim = victim->HasKeywordString("ActorTypeNPC");
 
 		auto& all = Catalog::Get().All();
+		bool  useAutoOff = true;
 		auto  collect = [&](Category c) {
             std::vector<Finisher*> v;
             for (auto& f : all) {
                 if (!f.on[wc] || !f.killmove || f.idles.empty()) continue;
                 if (humanVictim && f.creature) continue;                         // creature finisher on a person
                 if (!humanVictim && !f.creature && !f.targetSpecific) continue;  // human finisher on a creature
-                if (f.AutoExcluded(wc)) continue;                                // kept failing with this weapon
+                if (useAutoOff && f.AutoExcluded(wc)) continue;                  // kept failing with this weapon
                 auto fc = f.GetCategory();
                 if (fc != c && fc != Category::kAny) continue;
                 if (s.respectSexTags && ((f.femaleAttacker && !female) || (f.maleAttacker && female))) continue;
@@ -386,6 +387,10 @@ namespace ED
             return v;
 		};
 		std::vector<Finisher*> cands = collect(cat);
+		if (cands.empty()) {
+			useAutoOff = false;  // everything was auto-off: better to try them again than do nothing
+			cands = collect(cat);
+		}
 		if (cands.empty() && cat == Category::kSneak) cands = collect(Category::kBack);
 		if (cands.empty() && cat != Category::kFront) cands = collect(Category::kFront);
 		if (cands.empty()) {
@@ -464,6 +469,10 @@ namespace ED
 			std::vector<std::pair<double, Finisher*>> keyed;
 			for (auto f : cands) {
 				double w = std::max(1, f->chance[wc]) / 100.0;
+				// the last few animations played are much less likely, so it does not keep repeating
+				if (std::find(_recent.begin(), _recent.end(), f) != _recent.end()) {
+					w *= 0.15;
+				}
 				keyed.emplace_back(std::pow(u01(_rng), 1.0 / w), f);
 			}
 			std::sort(keyed.begin(), keyed.end(), [](auto& a, auto& b) { return a.first > b.first; });
@@ -559,9 +568,11 @@ namespace ED
 			logger::info("  no living victim");
 			return false;
 		}
-		while (_attempt.index < _attempt.candidates.size() && _attempt.tries < std::max(1, s.maxRetries)) {
-			auto f = _attempt.candidates[_attempt.index++];
-			++_attempt.tries;
+		// The randomly chosen animation gets a few chances: a refusal usually only means the player could not
+		// start an idle at that instant (mid-swing, landing...). Falling straight through to the next one in the
+		// same frame funnelled every execution into the same couple of animations.
+		while (_attempt.index < _attempt.candidates.size() && _attempt.tries < std::max(1, s.maxRetries) + 2) {
+			auto f = _attempt.candidates[_attempt.index];
 			auto idle = f->idles.front();
 			for (auto cand : f->idles) {
 				int failFn = 0;
@@ -578,11 +589,29 @@ namespace ED
 			_attempt.current = f;
 			_attempt.timer = 0;
 			_attempt.started = false;
-			logger::info("  try {} ({}) -> {}", f->event, idle->GetFormEditorID(), ok ? "sent" : "refused");
 			if (ok) {
+				logger::info("  try {} ({}) -> sent", f->event, idle->GetFormEditorID());
+				// animations that kept refusing while this one was accepted really do not work here
+				for (auto r : _attempt.refusedList) {
+					r->fails[_attempt.weaponClass]++;
+				}
+				_attempt.refusedList.clear();
+				++_attempt.index;
+				++_attempt.tries;
+				_attempt.refusals = 0;
 				return true;
 			}
-			f->fails[_attempt.weaponClass]++;
+			if (++_attempt.refusals < 3) {
+				// wait a moment and ask again with the same animation
+				_attempt.prepped = false;
+				_attempt.prepTimer = -0.15f;
+				return true;
+			}
+			logger::info("  try {} ({}) -> refused 3 times", f->event, idle->GetFormEditorID());
+			_attempt.refusedList.push_back(f);
+			_attempt.refusals = 0;
+			++_attempt.index;
+			++_attempt.tries;
 		}
 		return false;
 	}
@@ -654,6 +683,10 @@ namespace ED
 				if (_attempt.current) {
 					_attempt.current->success++;
 					_lastResult = _attempt.current->event;
+					_recent.push_back(_attempt.current);
+					while (_recent.size() > 3) {
+						_recent.pop_front();
+					}
 				}
 				return;
 			}
