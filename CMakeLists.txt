@@ -52,3 +52,27 @@ target_precompile_headers(${PROJECT_NAME} PRIVATE src/PCH.h)
 if(MSVC)
 	target_compile_options(${PROJECT_NAME} PRIVATE /utf-8 /Zc:preprocessor /EHsc /permissive-)
 endif()
+
+
+# ---------------------------------------------------------------- Execution Director
+find_package(nlohmann_json CONFIG REQUIRED)
+
+add_commonlibsse_plugin(
+	ExecutionDirector
+	NAME "ExecutionDirector"
+	AUTHOR "KillCamDirector"
+	SOURCES
+		execution/src/main.cpp
+		execution/src/Settings.cpp
+		execution/src/Finishers.cpp
+		execution/src/Executor.cpp
+		execution/src/Input.cpp
+		execution/src/UI.cpp
+)
+target_include_directories(ExecutionDirector PRIVATE execution/src include ${SIMPLEINI_INCLUDE_DIRS})
+target_compile_definitions(ExecutionDirector PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+target_link_libraries(ExecutionDirector PRIVATE minhook::minhook nlohmann_json::nlohmann_json)
+target_precompile_headers(ExecutionDirector PRIVATE execution/src/PCH.h)
+if(MSVC)
+	target_compile_options(ExecutionDirector PRIVATE /utf-8 /Zc:preprocessor /EHsc /permissive-)
+endif()
