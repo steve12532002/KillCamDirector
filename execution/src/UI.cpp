@@ -22,6 +22,9 @@ namespace ED::UI
 	{
 		char g_filter[64] = "";
 		bool g_showAll = false;
+		int  g_weapon = -1;  // -1 = all weapon classes at once
+		char g_presetName[64] = "";
+		std::string g_presetMsg;
 
 		// Draws the built-in glyph bitmap as horizontal runs of rectangles
 		void DrawGlyph(ImGuiMCP::ImDrawList* a_dl, float a_x, float a_y, float a_size, float a_grow, ImGuiMCP::ImU32 a_col)
@@ -235,7 +238,44 @@ namespace ED::UI
 				"or press Next to use it on your next execution. 'Fails' counts animations that refused to start per weapon "
 				"(Unarmed/1H/2H/Ranged/Other) - those are skipped automatically for that weapon after 3 failures. "
 				"'Chance' is how likely an animation is picked compared with the others that fit (100 = normal, 50 = half as often, "
-				"0 = never at random, only with Next).");
+				"0 = never at random, only with Next). On and Chance are kept separately for each weapon type - pick one below. "
+				"Test plays the animation on the nearest character as soon as you close this menu.");
+
+			ImGuiMCP::SeparatorText("Presets");
+			ImGuiMCP::SetNextItemWidth(220.0f);
+			ImGuiMCP::InputText("##presetname", g_presetName, sizeof(g_presetName));
+			ImGuiMCP::SameLine();
+			if (ImGuiMCP::Button("Save preset")) {
+				g_presetMsg = cat.SavePreset(g_presetName) ? std::string("Saved ") + g_presetName : "Enter a name without \\ / : * ? \" < > |";
+			}
+			for (auto& name : cat.ListPresets()) {
+				ImGuiMCP::PushID(("preset_" + name).c_str());
+				if (ImGuiMCP::Button("Load")) {
+					g_presetMsg = cat.LoadPreset(name) ? "Loaded " + name : "Could not load " + name;
+				}
+				ImGuiMCP::SameLine();
+				if (ImGuiMCP::Button("Delete")) {
+					cat.DeletePreset(name);
+					g_presetMsg = "Deleted " + name;
+				}
+				ImGuiMCP::SameLine();
+				ImGuiMCP::Text("%s", name.c_str());
+				ImGuiMCP::PopID();
+			}
+			if (!g_presetMsg.empty()) {
+				ImGuiMCP::TextDisabled("%s", g_presetMsg.c_str());
+			}
+
+			ImGuiMCP::SeparatorText("Weapon type");
+			ImGuiMCP::RadioButton("All", &g_weapon, -1);
+			for (int w = 0; w < kWeaponClassCount; ++w) {
+				ImGuiMCP::SameLine();
+				ImGuiMCP::RadioButton(WeaponClassName(w), &g_weapon, w);
+			}
+			if (auto test = Executor::Get().PendingTest(); !test.empty()) {
+				ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.6f, 0.6f, 1.0f }, "Test queued: %s - close the menu", test.c_str());
+			}
+			ImGuiMCP::Separator();
 			ImGuiMCP::InputText("Filter", g_filter, sizeof(g_filter));
 			ImGuiMCP::Checkbox("Also show non-killmove and creature animations", &g_showAll);
 			std::string filter = g_filter;
@@ -269,12 +309,33 @@ namespace ED::UI
 					ImGuiMCP::PushID(f.key.c_str());
 					ImGuiMCP::TableNextRow();
 					ImGuiMCP::TableNextColumn();
-					changed |= ImGuiMCP::Checkbox("##on", &f.enabled);
+					{
+						bool on = g_weapon < 0 ? std::all_of(f.on.begin(), f.on.end(), [](bool v) { return v; }) : f.on[g_weapon];
+						if (ImGuiMCP::Checkbox("##on", &on)) {
+							if (g_weapon < 0) {
+								f.on.fill(on);
+							} else {
+								f.on[g_weapon] = on;
+							}
+							changed = true;
+						}
+					}
 					ImGuiMCP::TableNextColumn();
 					ImGuiMCP::Text("%s", f.event.c_str());
 					ImGuiMCP::TableNextColumn();
 					ImGuiMCP::SetNextItemWidth(110.0f);
-					changed |= ImGuiMCP::SliderInt("##chance", &f.chance, 0, 100, "%d%%");
+					{
+						bool mixed = g_weapon < 0 && std::any_of(f.chance.begin(), f.chance.end(), [&](int v) { return v != f.chance[0]; });
+						int  ch = g_weapon < 0 ? f.chance[0] : f.chance[g_weapon];
+						if (ImGuiMCP::SliderInt("##chance", &ch, 0, 100, mixed ? "mixed" : "%d%%")) {
+							if (g_weapon < 0) {
+								f.chance.fill(ch);
+							} else {
+								f.chance[g_weapon] = ch;
+							}
+							changed = true;
+						}
+					}
 					ImGuiMCP::TableNextColumn();
 					int c = static_cast<int>(f.GetCategory());
 					if (ImGuiMCP::Combo("##cat", &c, cats, 5)) {
@@ -302,6 +363,10 @@ namespace ED::UI
 					bool isNext = Executor::Get().ForcedNext() == f.key;
 					if (ImGuiMCP::Button(isNext ? "queued" : "Next")) {
 						Executor::Get().ForceNext(f.key);
+					}
+					ImGuiMCP::SameLine();
+					if (ImGuiMCP::Button("Test")) {
+						Executor::Get().RequestTest(f.key);
 					}
 					ImGuiMCP::SameLine();
 					if (ImGuiMCP::Button("Reset")) {

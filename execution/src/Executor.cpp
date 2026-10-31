@@ -296,7 +296,7 @@ namespace ED
 		auto  collect = [&](Category c) {
             std::vector<Finisher*> v;
             for (auto& f : all) {
-                if (!f.enabled || !f.killmove || f.idles.empty()) continue;
+                if (!f.on[wc] || !f.killmove || f.idles.empty()) continue;
                 if (humanVictim && f.creature) continue;
                 auto fc = f.GetCategory();
                 if (fc != c && fc != Category::kAny) continue;
@@ -327,7 +327,7 @@ namespace ED
 		{
 			std::vector<Finisher*> allowed;
 			for (auto f : cands) {
-				if (f->chance > 0) {
+				if (f->chance[wc] > 0) {
 					allowed.push_back(f);
 				}
 			}
@@ -340,7 +340,7 @@ namespace ED
 			std::uniform_real_distribution<double> u01(1e-9, 1.0);
 			std::vector<std::pair<double, Finisher*>> keyed;
 			for (auto f : cands) {
-				double w = std::max(1, f->chance) / 100.0;
+				double w = std::max(1, f->chance[wc]) / 100.0;
 				keyed.emplace_back(std::pow(u01(_rng), 1.0 / w), f);
 			}
 			std::sort(keyed.begin(), keyed.end(), [](auto& a, auto& b) { return a.first > b.first; });
@@ -358,15 +358,62 @@ namespace ED
 			_forcedNext.clear();
 		}
 
+		logger::info("Execute {} ({}, {} weapon): {} candidates", victim->GetDisplayFullName(), CategoryName(cat), WeaponClassName(wc), cands.size());
+		Begin(victim, std::move(cands), wc, false);
+	}
+
+	void Executor::StartTest(RE::PlayerCharacter* a_player, const std::string& a_key)
+	{
+		if (_attempt.active || a_player->IsInKillMove() || IsSynced(a_player)) {
+			return;
+		}
+		auto f = Catalog::Get().Find(a_key);
+		if (!f || f->idles.empty()) {
+			return;
+		}
+		// nearest living actor, friend or foe, regardless of health
+		RE::Actor* victim = nullptr;
+		float      best = 800.0f;
+		if (auto pl = RE::ProcessLists::GetSingleton()) {
+			pl->ForEachHighActor([&](RE::Actor* a) {
+				if (a && a != a_player && !a->IsDead() && !a->IsInKillMove() && !IsSynced(a) && a->Is3DLoaded()) {
+					float d = a->GetPosition().GetDistance(a_player->GetPosition());
+					if (d < best) {
+						best = d;
+						victim = a;
+					}
+				}
+				return RE::BSContainer::ForEachResult::kContinue;
+			});
+		}
+		if (!victim) {
+			Notify("æ¸¬è©¦ï¼éè¿æ²æç®æ¨");  // 測試：附近沒有目標
+			return;
+		}
+		logger::info("Test {} on {}", f->event, victim->GetDisplayFullName());
+		Begin(victim, { f }, WeaponClassOf(a_player), true);
+	}
+
+	void Executor::PrepareVictim(RE::Actor* a_victim)
+	{
+		// a paired animation is only accepted while the victim's graph is free: cut their attack, stagger or idle
+		static const RE::BSFixedString kAttackStop("attackStop");
+		static const RE::BSFixedString kStaggerStop("staggerStop");
+		static const RE::BSFixedString kDefault("IdleForceDefaultState");
+		a_victim->NotifyAnimationGraph(kAttackStop);
+		a_victim->NotifyAnimationGraph(kStaggerStop);
+		a_victim->NotifyAnimationGraph(kDefault);
+	}
+
+	void Executor::Begin(RE::Actor* a_victim, std::vector<Finisher*> a_cands, int a_wc, bool a_test)
+	{
 		_attempt = Attempt{};
 		_attempt.active = true;
-		_attempt.victim = victim->GetHandle();
-		_attempt.candidates = std::move(cands);
-		_attempt.weaponClass = wc;
-		logger::info("Execute {} ({}, {} weapon): {} candidates", victim->GetDisplayFullName(), CategoryName(cat), WeaponClassName(wc), _attempt.candidates.size());
-		if (!TryNext(a_player)) {
-			_attempt.active = false;
-		}
+		_attempt.victim = a_victim->GetHandle();
+		_attempt.candidates = std::move(a_cands);
+		_attempt.weaponClass = a_wc;
+		_attempt.test = a_test;
+		PrepareVictim(a_victim);
 	}
 
 	bool Executor::TryNext(RE::PlayerCharacter* a_player)
@@ -404,10 +451,29 @@ namespace ED
 			return;
 		}
 		auto& s = Settings::Get();
-		bool  inPair = a_player->IsInKillMove() || IsSynced(a_player);
+		auto  victim = _attempt.victim.get();
+		static const RE::BSFixedString kDefault("IdleForceDefaultState");
+
+		// 1. give the victim's graph a moment to drop what it was doing
+		if (!_attempt.prepped) {
+			_attempt.prepTimer += a_dt;
+			if (_attempt.prepTimer < 0.08f) {
+				return;
+			}
+			_attempt.prepped = true;
+			if (!TryNext(a_player)) {
+				_attempt.active = false;
+				Notify("\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");  // 處決動畫啟動失敗
+			}
+			return;
+		}
+
+		// 2. both sides must be in the pair - the player alone playing it means it failed
+		bool victimIn = victim && (victim->IsInKillMove() || IsSynced(victim.get()));
+		bool playerIn = a_player->IsInKillMove() || IsSynced(a_player);
 		if (!_attempt.started) {
 			_attempt.timer += a_dt;
-			if (inPair) {
+			if (victimIn && playerIn) {
 				_attempt.started = true;
 				if (_attempt.current) {
 					_attempt.current->success++;
@@ -415,12 +481,19 @@ namespace ED
 				}
 				return;
 			}
-			if (_attempt.timer > 0.5f) {
+			if (_attempt.timer > 0.6f) {
 				if (_attempt.current) {
 					_attempt.current->fails[_attempt.weaponClass]++;
-					logger::info("  {} did not start", _attempt.current->event);
+					logger::info("  {} did not start (player {}, victim {})", _attempt.current->event, playerIn, victimIn);
 				}
-				if (!TryNext(a_player)) {
+				// stop a one-sided animation before trying another
+				if (playerIn || a_player->IsInKillMove()) {
+					a_player->NotifyAnimationGraph(kDefault);
+				}
+				if (victim) {
+					PrepareVictim(victim.get());
+				}
+				if (_attempt.test || !TryNext(a_player)) {
 					_attempt.active = false;
 					_lastResult = "failed";
 					Catalog::Get().SaveUser();
@@ -429,18 +502,32 @@ namespace ED
 			}
 			return;
 		}
-		// running: wait for the pair to finish
-		if (inPair) {
+
+		// 3. running: wait until neither is in the pair any more
+		if (playerIn || victimIn) {
 			_attempt.endTimer = 0;
 			return;
 		}
 		_attempt.endTimer += a_dt;
-		if (_attempt.endTimer < 0.4f) {
+		if (_attempt.endTimer < 0.3f) {
 			return;
 		}
-		if (auto victim = _attempt.victim.get(); victim && s.ensureKill && !victim->IsDead() &&
-		                                         (s.allowEssential || !victim->IsEssential())) {
+		bool canKill = victim && s.ensureKill && !victim->IsDead() && (s.allowEssential || !victim->IsEssential());
+		if (canKill && _attempt.killTimer < 0.0f) {
+			// damage instead of an instant kill: the normal death path ragdolls them instead of leaving a standing corpse
 			logger::info("  victim survived the animation - finishing them");
+			if (auto avo = victim->AsActorValueOwner()) {
+				avo->DamageActorValue(RE::ActorValue::kHealth, avo->GetActorValue(RE::ActorValue::kHealth) + 1000.0f);
+			}
+			_attempt.killTimer = 0.0f;
+			return;
+		}
+		if (canKill && _attempt.killTimer >= 0.0f) {
+			_attempt.killTimer += a_dt;
+			if (_attempt.killTimer < 1.0f) {
+				return;
+			}
+			logger::info("  still alive - forcing death");
 			victim->KillImmediate();
 		}
 		_attempt.active = false;
@@ -464,6 +551,10 @@ namespace ED
 		UpdateStagger(a_player);
 		if (_executeRequested.exchange(false)) {
 			StartExecution(a_player);
+		}
+		if (auto key = PendingTest(); !key.empty()) {
+			RequestTest("");
+			StartTest(a_player, key);
 		}
 		UpdateAttempt(a_player, a_dt);
 		UpdateMarkerScreen();

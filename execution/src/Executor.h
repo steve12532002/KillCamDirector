@@ -25,6 +25,16 @@ namespace ED
 		void Tick(RE::PlayerCharacter* a_player, float a_dt);
 		void RequestExecute() { _executeRequested = true; }
 		void ForceNext(const std::string& a_key) { _forcedNext = a_key; }
+		void RequestTest(const std::string& a_key)
+		{
+			std::scoped_lock l(_testLock);
+			_testKey = a_key;
+		}
+		std::string PendingTest()
+		{
+			std::scoped_lock l(_testLock);
+			return _testKey;
+		}
 		const std::string& ForcedNext() const { return _forcedNext; }
 
 		std::vector<MarkerDraw> Markers()
@@ -53,7 +63,11 @@ namespace ED
 			Finisher*              current{ nullptr };
 			float                  timer{ 0 };
 			bool                   started{ false };
+			bool                   prepped{ false };
+			float                  prepTimer{ 0 };
 			float                  endTimer{ 0 };
+			float                  killTimer{ -1 };
+			bool                   test{ false };
 			int                    weaponClass{ 0 };
 		};
 
@@ -61,6 +75,9 @@ namespace ED
 		void        UpdateStagger(RE::PlayerCharacter* a_player);
 		void        UpdateMarkerScreen();
 		void        StartExecution(RE::PlayerCharacter* a_player);
+		void        StartTest(RE::PlayerCharacter* a_player, const std::string& a_key);
+		void        Begin(RE::Actor* a_victim, std::vector<Finisher*> a_cands, int a_wc, bool a_test);
+		void        PrepareVictim(RE::Actor* a_victim);
 		void        UpdateAttempt(RE::PlayerCharacter* a_player, float a_dt);
 		bool        TryNext(RE::PlayerCharacter* a_player);
 		bool        IsExecutable(RE::PlayerCharacter* a_player, RE::Actor* a_actor) const;
@@ -75,6 +92,8 @@ namespace ED
 		std::atomic<bool>                           _executeRequested{ false };
 		Attempt                                     _attempt;
 		std::string                                 _forcedNext;
+		std::mutex                                  _testLock;
+		std::string                                 _testKey;
 		std::string                                 _lastResult;
 		std::mt19937                                _rng{ std::random_device{}() };
 	};

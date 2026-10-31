@@ -1,5 +1,7 @@
 #pragma once
 
+#include <nlohmann/json.hpp>
+
 namespace ED
 {
 	enum class Category : int
@@ -41,8 +43,9 @@ namespace ED
 		bool                           maleAttacker{ false };
 		bool                           hasWeaponTags{ false };
 		std::array<bool, kWeaponClassCount> weaponOk{ true, true, true, true, true };
-		bool                           enabled{ true };
-		int                            chance{ 100 };  // relative chance (weight) of being picked, 0 = never at random
+		// per weapon class (Unarmed/1H/2H/Ranged/Other): used at all, and relative chance (0 = only via Next/Test)
+		std::array<bool, kWeaponClassCount> on{ true, true, true, true, true };
+		std::array<int, kWeaponClassCount>  chance{ 100, 100, 100, 100, 100 };
 		int                            success{ 0 };
 		std::array<int, kWeaponClassCount> fails{};
 
@@ -63,11 +66,19 @@ namespace ED
 		void LoadUser();
 		void SaveUser();
 
+		// presets: on/off, chance and category of every finisher
+		std::vector<std::string> ListPresets() const;
+		bool                     SavePreset(const std::string& a_name);
+		bool                     LoadPreset(const std::string& a_name);
+		bool                     DeletePreset(const std::string& a_name);
+
 		std::vector<Finisher>& All() { return _list; }
 		Finisher*              Find(const std::string& a_key);
 
 	private:
 		Catalog() = default;
+		nlohmann::json ToJson(bool a_stats) const;
+		void           FromJson(const nlohmann::json& a_j, bool a_stats);
 		std::vector<Finisher> _list;
 		bool                  _blocked{ false };
 	};

@@ -271,6 +271,95 @@ namespace ED
 		logger::info("Blocked random player killmoves on {} idle forms (NPC killmoves unchanged)", count);
 	}
 
+	nlohmann::json Catalog::ToJson(bool a_stats) const
+	{
+		nlohmann::json j;
+		j["version"] = 2;
+		j["on"] = nlohmann::json::object();
+		j["chance"] = nlohmann::json::object();
+		j["category"] = nlohmann::json::object();
+		if (a_stats) {
+			j["stats"] = nlohmann::json::object();
+		}
+		for (auto& f : _list) {
+			if (std::any_of(f.on.begin(), f.on.end(), [](bool v) { return !v; })) {
+				j["on"][f.key] = std::vector<int>(f.on.begin(), f.on.end());
+			}
+			if (std::any_of(f.chance.begin(), f.chance.end(), [](int v) { return v != 100; })) {
+				j["chance"][f.key] = std::vector<int>(f.chance.begin(), f.chance.end());
+			}
+			if (f.userCategory >= 0) {
+				j["category"][f.key] = f.userCategory;
+			}
+			if (a_stats && (f.success || std::any_of(f.fails.begin(), f.fails.end(), [](int v) { return v > 0; }))) {
+				j["stats"][f.key] = { { "success", f.success }, { "fail", std::vector<int>(f.fails.begin(), f.fails.end()) } };
+			}
+		}
+		return j;
+	}
+
+	void Catalog::FromJson(const nlohmann::json& j, bool a_stats)
+	{
+		// a preset fully replaces the current choices
+		for (auto& f : _list) {
+			f.on.fill(true);
+			f.chance.fill(100);
+			f.userCategory = -1;
+		}
+		// v1 files
+		if (j.contains("disabled")) {
+			for (auto& k : j["disabled"]) {
+				if (auto f = Find(k.get<std::string>())) {
+					f->on.fill(false);
+				}
+			}
+		}
+		if (j.contains("on")) {
+			for (auto& [k, v] : j["on"].items()) {
+				if (auto f = Find(k); f && v.is_array()) {
+					for (std::size_t i = 0; i < v.size() && i < f->on.size(); ++i) {
+						f->on[i] = v[i].get<int>() != 0;
+					}
+				}
+			}
+		}
+		if (j.contains("chance")) {
+			for (auto& [k, v] : j["chance"].items()) {
+				auto f = Find(k);
+				if (!f) {
+					continue;
+				}
+				if (v.is_number()) {
+					f->chance.fill(std::clamp(v.get<int>(), 0, 100));
+				} else if (v.is_array()) {
+					for (std::size_t i = 0; i < v.size() && i < f->chance.size(); ++i) {
+						f->chance[i] = std::clamp(v[i].get<int>(), 0, 100);
+					}
+				}
+			}
+		}
+		if (j.contains("category")) {
+			for (auto& [k, v] : j["category"].items()) {
+				if (auto f = Find(k)) {
+					f->userCategory = v.get<int>();
+				}
+			}
+		}
+		if (a_stats && j.contains("stats")) {
+			for (auto& [k, v] : j["stats"].items()) {
+				if (auto f = Find(k)) {
+					f->success = v.value("success", 0);
+					if (v.contains("fail")) {
+						auto arr = v["fail"].get<std::vector<int>>();
+						for (std::size_t i = 0; i < arr.size() && i < f->fails.size(); ++i) {
+							f->fails[i] = arr[i];
+						}
+					}
+				}
+			}
+		}
+	}
+
 	void Catalog::LoadUser()
 	{
 		try {
@@ -278,42 +367,8 @@ namespace ED
 			if (!std::filesystem::exists(kUserFile, ec)) {
 				return;
 			}
-			std::ifstream  in(kUserFile);
-			nlohmann::json j = nlohmann::json::parse(in, nullptr, true, true);
-			if (j.contains("disabled")) {
-				for (auto& k : j["disabled"]) {
-					if (auto f = Find(k.get<std::string>())) {
-						f->enabled = false;
-					}
-				}
-			}
-			if (j.contains("chance")) {
-				for (auto& [k, v] : j["chance"].items()) {
-					if (auto f = Find(k)) {
-						f->chance = std::clamp(v.get<int>(), 0, 100);
-					}
-				}
-			}
-			if (j.contains("category")) {
-				for (auto& [k, v] : j["category"].items()) {
-					if (auto f = Find(k)) {
-						f->userCategory = v.get<int>();
-					}
-				}
-			}
-			if (j.contains("stats")) {
-				for (auto& [k, v] : j["stats"].items()) {
-					if (auto f = Find(k)) {
-						f->success = v.value("success", 0);
-						if (v.contains("fail")) {
-							auto arr = v["fail"].get<std::vector<int>>();
-							for (std::size_t i = 0; i < arr.size() && i < f->fails.size(); ++i) {
-								f->fails[i] = arr[i];
-							}
-						}
-					}
-				}
-			}
+			std::ifstream in(kUserFile);
+			FromJson(nlohmann::json::parse(in, nullptr, true, true), true);
 		} catch (const std::exception& ex) {
 			logger::warn("Could not read {}: {}", kUserFile, ex.what());
 		}
@@ -321,28 +376,92 @@ namespace ED
 
 	void Catalog::SaveUser()
 	{
-		nlohmann::json j;
-		j["disabled"] = nlohmann::json::array();
-		j["category"] = nlohmann::json::object();
-		j["chance"] = nlohmann::json::object();
-		j["stats"] = nlohmann::json::object();
-		for (auto& f : _list) {
-			if (!f.enabled) {
-				j["disabled"].push_back(f.key);
-			}
-			if (f.chance != 100) {
-				j["chance"][f.key] = f.chance;
-			}
-			if (f.userCategory >= 0) {
-				j["category"][f.key] = f.userCategory;
-			}
-			if (f.success || std::any_of(f.fails.begin(), f.fails.end(), [](int v) { return v > 0; })) {
-				j["stats"][f.key] = { { "success", f.success }, { "fail", std::vector<int>(f.fails.begin(), f.fails.end()) } };
-			}
-		}
 		std::error_code ec;
 		std::filesystem::create_directories(std::filesystem::path(kUserFile).parent_path(), ec);
 		std::ofstream out(kUserFile);
-		out << j.dump(2);
+		out << ToJson(true).dump(2);
+	}
+
+	namespace
+	{
+		constexpr auto kPresetDir = "Data/SKSE/Plugins/ExecutionDirector/Presets";
+
+		std::filesystem::path PresetPath(const std::string& a_name)
+		{
+			std::u8string u(a_name.begin(), a_name.end());
+			return std::filesystem::path(kPresetDir) / std::filesystem::path(u + u8".json");
+		}
+
+		bool ValidName(const std::string& a_name)
+		{
+			if (a_name.empty() || a_name.size() > 60) {
+				return false;
+			}
+			for (char c : a_name) {
+				if (std::string_view("\\/:*?\"<>|").find(c) != std::string_view::npos) {
+					return false;
+				}
+			}
+			return a_name != "." && a_name != "..";
+		}
+	}
+
+	std::vector<std::string> Catalog::ListPresets() const
+	{
+		std::vector<std::string> out;
+		std::error_code          ec;
+		if (!std::filesystem::exists(kPresetDir, ec)) {
+			return out;
+		}
+		for (auto& e : std::filesystem::directory_iterator(kPresetDir, ec)) {
+			if (e.path().extension() != ".json") {
+				continue;
+			}
+			auto u = e.path().stem().u8string();
+			out.emplace_back(u.begin(), u.end());
+		}
+		std::sort(out.begin(), out.end());
+		return out;
+	}
+
+	bool Catalog::SavePreset(const std::string& a_name)
+	{
+		if (!ValidName(a_name)) {
+			return false;
+		}
+		try {
+			std::error_code ec;
+			std::filesystem::create_directories(kPresetDir, ec);
+			std::ofstream out(PresetPath(a_name));
+			out << ToJson(false).dump(2);
+			logger::info("Saved preset {}", a_name);
+			return static_cast<bool>(out);
+		} catch (const std::exception& ex) {
+			logger::warn("Could not save preset {}: {}", a_name, ex.what());
+			return false;
+		}
+	}
+
+	bool Catalog::LoadPreset(const std::string& a_name)
+	{
+		try {
+			std::ifstream in(PresetPath(a_name));
+			if (!in) {
+				return false;
+			}
+			FromJson(nlohmann::json::parse(in, nullptr, true, true), false);
+			SaveUser();
+			logger::info("Loaded preset {}", a_name);
+			return true;
+		} catch (const std::exception& ex) {
+			logger::warn("Could not load preset {}: {}", a_name, ex.what());
+			return false;
+		}
+	}
+
+	bool Catalog::DeletePreset(const std::string& a_name)
+	{
+		std::error_code ec;
+		return std::filesystem::remove(PresetPath(a_name), ec);
 	}
 }
