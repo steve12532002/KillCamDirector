@@ -68,6 +68,7 @@ namespace ED
 		CSimpleIniA ini;
 		ini.SetUnicode();
 		ini.SetBoolValue("General", "bEnabled", enabled);
+		ini.SetLongValue("General", "iExecuteKey", static_cast<long>(executeKey));
 		ini.SetDoubleValue("General", "fHealthThreshold", healthThreshold);
 		ini.SetDoubleValue("General", "fExecuteRange", executeRange);
 		ini.SetBoolValue("General", "bBlockRandomPlayerKillmoves", blockRandomPlayerKillmoves);

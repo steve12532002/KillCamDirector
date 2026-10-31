@@ -9,6 +9,7 @@
 #include <windows.h>
 
 #include "SKSEMenuFramework.h"
+#include "Input.h"
 
 #include "Executor.h"
 #include "Finishers.h"
@@ -62,7 +63,15 @@ namespace ED::UI
 			auto& s = Settings::Get();
 			bool  changed = false;
 			changed |= ImGuiMCP::Checkbox("Enabled", &s.enabled);
-			ImGuiMCP::Text("Execute key: DirectInput code %u (change iExecuteKey in ExecutionDirector.ini)", s.executeKey);
+			ImGuiMCP::Text("Execute key: %s  (code %u)", Input::KeyName(s.executeKey), s.executeKey);
+			ImGuiMCP::SameLine();
+			if (Input::IsCapturing()) {
+				if (ImGuiMCP::Button("Press any key... (Esc = cancel)")) {
+					Input::CancelCapture();
+				}
+			} else if (ImGuiMCP::Button("Change key")) {
+				Input::BeginCapture();
+			}
 			float pct = s.healthThreshold * 100.0f;
 			if (ImGuiMCP::SliderFloat("Executable below health", &pct, 5.0f, 60.0f, "%.0f%%")) {
 				s.healthThreshold = pct / 100.0f;

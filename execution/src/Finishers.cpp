@@ -112,10 +112,21 @@ namespace ED
 		std::unordered_map<std::string, std::size_t> index;
 		std::unordered_map<std::string, std::string> idleEventByEditorID;  // lower EDID -> key
 
-		for (auto idle : data->GetFormArray<RE::TESIdleForm>()) {
-			if (!idle) {
-				continue;
+		// Idle forms are not kept in the data handler's per-type arrays, so walk the global form map
+		std::vector<RE::TESIdleForm*> idles;
+		{
+			auto [map, lock] = RE::TESForm::GetAllForms();
+			RE::BSReadLockGuard guard{ lock.get() };
+			if (map) {
+				for (auto& [id, form] : *map) {
+					if (form && form->GetFormType() == RE::FormType::Idle) {
+						idles.push_back(static_cast<RE::TESIdleForm*>(form));
+					}
+				}
 			}
+		}
+		logger::info("Scanning {} idle forms", idles.size());
+		for (auto idle : idles) {
 			std::string ev = idle->animEventName.c_str() ? idle->animEventName.c_str() : "";
 			std::string key = Lower(ev);
 			if (!key.starts_with("pa_")) {

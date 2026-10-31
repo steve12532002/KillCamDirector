@@ -4,7 +4,7 @@
 #include "Finishers.h"
 #include "Settings.h"
 
-namespace ED::Input { void Install(); }
+#include "Input.h"
 namespace ED::UI { void Register(); }
 
 namespace
