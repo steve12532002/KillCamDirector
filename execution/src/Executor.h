@@ -68,6 +68,7 @@ namespace ED
 			float                  endTimer{ 0 };
 			float                  killTimer{ -1 };
 			bool                   test{ false };
+			bool                   oneSided{ false };
 			int                    weaponClass{ 0 };
 		};
 
@@ -78,6 +79,8 @@ namespace ED
 		void        StartTest(RE::PlayerCharacter* a_player, const std::string& a_key);
 		void        Begin(RE::Actor* a_victim, std::vector<Finisher*> a_cands, int a_wc, bool a_test);
 		void        PrepareVictim(RE::Actor* a_victim);
+		static bool VictimBusy(RE::Actor* a_victim);
+		void        Finish(bool a_ok, const char* a_msg);
 		void        UpdateAttempt(RE::PlayerCharacter* a_player, float a_dt);
 		bool        TryNext(RE::PlayerCharacter* a_player);
 		bool        IsExecutable(RE::PlayerCharacter* a_player, RE::Actor* a_actor) const;

@@ -38,6 +38,7 @@ namespace ED
 		Category                       autoCategory{ Category::kFront };
 		int                            userCategory{ -1 };  // -1 = automatic
 		bool                           creature{ false };
+		bool                           targetSpecific{ false };  // idle tree checks the victim's race
 		std::string                    raceWord;  // humanoid race the victim must be (falmer, draugr), empty = any
 		bool                           killmove{ false };
 		bool                           femaleAttacker{ false };
@@ -49,6 +50,9 @@ namespace ED
 		std::array<int, kWeaponClassCount>  chance{ 100, 100, 100, 100, 100 };
 		int                            success{ 0 };
 		std::array<int, kWeaponClassCount> fails{};
+
+		// failed repeatedly with this weapon and never proven to work often enough: left out of random picks
+		bool AutoExcluded(int a_wc) const { return fails[a_wc] >= 2 && fails[a_wc] > success * 2; }
 
 		Category GetCategory() const { return userCategory >= 0 ? static_cast<Category>(userCategory) : autoCategory; }
 	};

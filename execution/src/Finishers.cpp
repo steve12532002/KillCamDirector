@@ -24,7 +24,8 @@ namespace ED
 		const char* kCreatureWords[] = { "dragon", "werewolf", "vampirelord", "vamplord", "bear", "troll", "giant", "spider",
 			"sabre", "sabercat", "wolf", "chaurus", "horker", "spriggan", "dwarven", "centurion", "sphere", "mammoth",
 			"horse", "netch", "lurker", "seeker", "gargoyle", "hagraven", "skeever", "mudcrab", "deathhound", "riekling",
-			"ashhopper", "creature", "frostbite", "atronach", "wisp" };
+			"ashhopper", "creature", "frostbite", "atronach", "wisp", "boar", "husky", "dog", "goat", "elk", "deer",
+			"fox", "cow", "slaughterfish", "ashspawn", "lurker", "karstaag", "benthic", "dragonpriest" };
 
 		bool LooksLikeCreature(const std::string& a_text)
 		{
@@ -163,6 +164,19 @@ namespace ED
 			}
 			f.killmove = Contains(text, "kill");
 			f.creature = LooksLikeCreature(Lower(f.event + " " + f.chain));
+			// a "the target is race X" condition in the idle tree means it is made for a specific race
+			for (auto idle : f.idles) {
+				int guard = 0;
+				for (auto i = idle; i && guard < 32; i = i->parentIdle, ++guard) {
+					for (auto item = i->conditions.head; item; item = item->next) {
+						auto fn = item->data.functionData.function.get();
+						if ((fn == RE::FUNCTION_DATA::FunctionID::kGetIsRace || fn == RE::FUNCTION_DATA::FunctionID::kGetIsID) &&
+							item->data.object == RE::CONDITIONITEMOBJECT::kTarget) {
+							f.targetSpecific = true;
+						}
+					}
+				}
+			}
 			for (auto w : { "falmer", "draugr" }) {
 				if (Contains(Lower(f.event + " " + f.chain + " " + f.editorID), w)) {
 					f.raceWord = w;

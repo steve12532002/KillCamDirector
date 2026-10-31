@@ -236,7 +236,8 @@ namespace ED::UI
 			ImGuiMCP::TextWrapped(
 				"Every paired animation the game has loaded. Untick to stop using it, change its category if it was guessed wrong, "
 				"or press Next to use it on your next execution. 'Fails' counts animations that refused to start per weapon "
-				"(Unarmed/1H/2H/Ranged/Other) - those are skipped automatically for that weapon after 3 failures. "
+				"(Unarmed/1H/2H/Ranged/Other) - after 2 failures with a weapon an animation is marked auto-off and no longer picked "
+				"for that weapon (Reset gives it another chance; Test still plays it). "
 				"'Chance' is how likely an animation is picked compared with the others that fit (100 = normal, 50 = half as often, "
 				"0 = never at random, only with Next). On and Chance are kept separately for each weapon type - pick one below. "
 				"Test plays the animation on the nearest character as soon as you close this menu.");
@@ -369,6 +370,18 @@ namespace ED::UI
 					ImGuiMCP::Text("%s", from.c_str());
 					ImGuiMCP::TableNextColumn();
 					ImGuiMCP::Text("%d / %d %d %d %d %d", f.success, f.fails[0], f.fails[1], f.fails[2], f.fails[3], f.fails[4]);
+					{
+						std::string off;
+						for (int w = 0; w < kWeaponClassCount; ++w) {
+							if ((g_weapon < 0 || g_weapon == w) && f.AutoExcluded(w)) {
+								off += std::string(off.empty() ? "" : " ") + WeaponClassName(w);
+							}
+						}
+						if (!off.empty()) {
+							ImGuiMCP::SameLine();
+							ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.5f, 0.5f, 1.0f }, "auto-off: %s", off.c_str());
+						}
+					}
 					ImGuiMCP::TableNextColumn();
 					if (ImGuiMCP::Button("Reset")) {
 						f.fails.fill(0);
