@@ -268,6 +268,14 @@ namespace ED::UI
 				ImGuiMCP::TextDisabled("%s", g_presetMsg.c_str());
 			}
 
+			if (ImGuiMCP::Button("Reset all OK / Fails counts (re-enables every auto-off animation)")) {
+				for (auto& f : cat.All()) {
+					f.fails.fill(0);
+					f.success = 0;
+				}
+				cat.SaveUser();
+			}
+
 			ImGuiMCP::SeparatorText("Weapon type");
 			ImGuiMCP::RadioButton("All", &g_weapon, -1);
 			for (int w = 0; w < kWeaponClassCount; ++w) {
@@ -286,16 +294,15 @@ namespace ED::UI
 			bool changed = false;
 			const char* cats[] = { "Front", "Back", "Sneak", "Bleedout", "Any" };
 			auto flags = ImGuiMCP::ImGuiTableFlags_Borders | ImGuiMCP::ImGuiTableFlags_RowBg | ImGuiMCP::ImGuiTableFlags_Resizable | ImGuiMCP::ImGuiTableFlags_SizingFixedFit;
-			if (ImGuiMCP::BeginTable("finishers", 9, flags)) {
+			if (ImGuiMCP::BeginTable("finishers", 8, flags)) {
 				ImGuiMCP::TableSetupColumn("On");
 				ImGuiMCP::TableSetupColumn("Try");
 				ImGuiMCP::TableSetupColumn("Animation event");
 				ImGuiMCP::TableSetupColumn("Chance");
 				ImGuiMCP::TableSetupColumn("Category");
 				ImGuiMCP::TableSetupColumn("Needs");
-				ImGuiMCP::TableSetupColumn("From");
 				ImGuiMCP::TableSetupColumn("OK / Fails");
-				ImGuiMCP::TableSetupColumn("Stats");
+				ImGuiMCP::TableSetupColumn("From");
 				ImGuiMCP::TableHeadersRow();
 				for (auto& f : all) {
 					if (!g_showAll && (!f.killmove || f.creature)) {
@@ -330,6 +337,12 @@ namespace ED::UI
 					ImGuiMCP::SameLine();
 					if (ImGuiMCP::Button(Executor::Get().ForcedNext() == f.key ? "Queued" : "Next")) {
 						Executor::Get().ForceNext(f.key);
+					}
+					ImGuiMCP::SameLine();
+					if (ImGuiMCP::Button("Reset")) {
+						f.fails.fill(0);
+						f.success = 0;
+						changed = true;
 					}
 					ImGuiMCP::TableNextColumn();
 					ImGuiMCP::Text("%s", f.event.c_str());
@@ -366,10 +379,6 @@ namespace ED::UI
 					if (f.creature) needs += "creature ";
 					ImGuiMCP::Text("%s", needs.empty() ? "-" : needs.c_str());
 					ImGuiMCP::TableNextColumn();
-					std::string from;
-					for (auto& src : f.sources) from += (from.empty() ? "" : ", ") + src;
-					ImGuiMCP::Text("%s", from.c_str());
-					ImGuiMCP::TableNextColumn();
 					ImGuiMCP::Text("%d / %d %d %d %d %d", f.success, f.fails[0], f.fails[1], f.fails[2], f.fails[3], f.fails[4]);
 					{
 						std::string off;
@@ -384,11 +393,9 @@ namespace ED::UI
 						}
 					}
 					ImGuiMCP::TableNextColumn();
-					if (ImGuiMCP::Button("Reset")) {
-						f.fails.fill(0);
-						f.success = 0;
-						changed = true;
-					}
+					std::string from;
+					for (auto& src : f.sources) from += (from.empty() ? "" : ", ") + src;
+					ImGuiMCP::Text("%s", from.c_str());
 					ImGuiMCP::PopID();
 				}
 				ImGuiMCP::EndTable();
