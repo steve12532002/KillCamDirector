@@ -1,0 +1,22 @@
+{
+  "_comment": "Tags per animation event. Category: front / back / sneak / bleed. Attacker: a_female / a_male. Weapons: a_all, a_1h, a_2h, a_h2h, a_bow. Anything not listed here is guessed from its name and idle tree, and can be changed in the Finishers page.",
+  "events": {
+    "pa_KillMoveBooty": ["front", "a_female", "a_all"],
+    "pa_KillMoveMern": ["front", "a_female", "a_all"],
+    "pa_KillMoveNeckSnap_F": ["front", "a_female", "a_all"],
+    "pa_KillMoveNeckSnap_B": ["back", "a_female", "a_all"],
+    "pa_KillMoveSmother": ["sneak", "a_female", "a_all"],
+    "pa_KillMoveTowerScissor": ["front", "a_female", "a_all"],
+    "pa_KillMoveJacksieCrack_F": ["front", "a_female", "a_all"],
+    "pa_KillMoveJacksieCrack_L": ["front", "a_female", "a_all"],
+    "pa_KillMoveJacksieCrack_R": ["front", "a_female", "a_all"],
+    "pa_KillmoveLightsoutLoins": ["front", "a_female", "a_all"],
+    "pa_KillMove1HMBackStab": ["back", "a_1h"],
+    "pa_KillMove2HMStabFromBehind": ["back", "a_2h"],
+    "pa_KillMove2HWHackFromBehind": ["back", "a_2h"],
+    "pa_KillMoveH2HSuplex": ["back", "a_h2h"],
+    "pa_KillMove1HMDecapBleedOut": ["bleed", "a_1h"],
+    "pa_KillMove2HMDecapBleedOut": ["bleed", "a_2h"],
+    "pa_KillMove2HWDecapBleedOut": ["bleed", "a_2h"]
+  }
+}
