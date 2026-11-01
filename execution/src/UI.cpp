@@ -22,6 +22,7 @@ namespace ED::UI
 	{
 		char g_filter[64] = "";
 		bool g_showAll = false;
+		int  g_group = 0;  // 0 = human finishers, 1 = creature / special race finishers
 		int  g_weapon = -1;  // -1 = all weapon classes at once
 		char g_presetName[64] = "";
 		std::string g_presetMsg;
@@ -301,7 +302,11 @@ namespace ED::UI
 			}
 			ImGuiMCP::Separator();
 			ImGuiMCP::InputText("Filter", g_filter, sizeof(g_filter));
-			ImGuiMCP::Checkbox("Also show non-killmove and creature animations", &g_showAll);
+			ImGuiMCP::SeparatorText("Group");
+			ImGuiMCP::RadioButton("Human finishers (used on people)", &g_group, 0);
+			ImGuiMCP::SameLine();
+			ImGuiMCP::RadioButton("Creature / special race finishers (used only on those)", &g_group, 1);
+			ImGuiMCP::Checkbox("Also show non-killmove paired animations", &g_showAll);
 			std::string filter = g_filter;
 			std::transform(filter.begin(), filter.end(), filter.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
@@ -319,7 +324,7 @@ namespace ED::UI
 				ImGuiMCP::TableSetupColumn("From");
 				ImGuiMCP::TableHeadersRow();
 				for (auto& f : all) {
-					if (!g_showAll && (!f.killmove || f.creature)) {
+					if (f.IsCreatureGroup() != (g_group == 1) || (!g_showAll && !f.killmove)) {
 						continue;
 					}
 					if (!filter.empty()) {

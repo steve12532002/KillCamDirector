@@ -515,7 +515,10 @@ namespace ED
 		const Category cat = CategoryFor(a_player, victim);
 		const int      wc = WeaponClassOf(a_player);
 		const bool     female = a_player->GetActorBase() && a_player->GetActorBase()->GetSex() == RE::SEX::kFemale;
-		const bool     humanVictim = victim->HasKeywordString("ActorTypeNPC");
+		// a person: ActorTypeNPC and not one of the special races that have their own finishers
+		const std::string victimRace = RaceOf(victim);
+		const bool     humanVictim = victim->HasKeywordString("ActorTypeNPC") &&
+		                         victimRace.find("draugr") == std::string::npos && victimRace.find("falmer") == std::string::npos;
 
 		auto& all = Catalog::Get().All();
 		bool  useAutoOff = true;
@@ -523,8 +526,8 @@ namespace ED
             std::vector<Finisher*> v;
             for (auto& f : all) {
                 if (!f.on[wc] || !f.killmove || f.idles.empty()) continue;
-                if (humanVictim && f.creature) continue;                         // creature finisher on a person
-                if (!humanVictim && !f.creature && !f.targetSpecific) continue;  // human finisher on a creature
+                // the two groups never mix: people get human finishers, everything else creature / race finishers
+                if (humanVictim == f.IsCreatureGroup()) continue;
                 if (useAutoOff && f.AutoExcluded(wc)) continue;                  // kept failing with this weapon
                 auto fc = f.GetCategory();
                 if (fc != c && fc != Category::kAny) continue;
