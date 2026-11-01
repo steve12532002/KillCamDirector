@@ -350,8 +350,14 @@ namespace ED
 				depth[chain[i]] = static_cast<int>(chain.size() - i);  // distance from the top
 			}
 		}
+		// only a node that is itself a killmove group: higher up are the attack trees (combat mods such as BFCO
+		// put theirs there), and an idle hung there would be played as an ordinary attack
 		RE::TESIdleForm* root = nullptr;
 		for (auto& [node, n] : cover) {
+			const char* id = node->GetFormEditorID();
+			if (!id || Lower(id).find("killmove") == std::string::npos) {
+				continue;
+			}
 			if (!root || n > cover[root] || (n == cover[root] && depth[node] > depth[root])) {
 				root = node;
 			}

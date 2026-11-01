@@ -994,7 +994,8 @@ namespace ED
 		}
 		auto ctx = std::static_pointer_cast<AttackContext>(_armCtx);
 		auto victim = ctx->victim.get();
-		if (a_player->IsInKillMove() || IsSynced(a_player)) {
+		// only the kill-move flag counts: a synced graph alone also happens for idles the attack picked up by mistake
+		if (a_player->IsInKillMove()) {
 			Disarm(true);
 			return;
 		}
