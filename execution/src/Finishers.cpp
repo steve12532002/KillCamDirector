@@ -474,7 +474,7 @@ namespace ED
 	nlohmann::json Catalog::ToJson(bool a_stats) const
 	{
 		nlohmann::json j;
-		j["version"] = 3;
+		j["version"] = 4;
 		j["on"] = nlohmann::json::object();
 		j["chance"] = nlohmann::json::object();
 		j["category"] = nlohmann::json::object();
@@ -545,8 +545,8 @@ namespace ED
 				}
 			}
 		}
-		// failure counts from before v3 included harmless refusals - start those afresh
-		if (a_stats && j.contains("stats") && j.value("version", 1) >= 3) {
+		// failure counts from before v4 were made with a different way of starting finishers - start afresh
+		if (a_stats && j.contains("stats") && j.value("version", 1) >= 4) {
 			for (auto& [k, v] : j["stats"].items()) {
 				if (auto f = Find(k)) {
 					f->success = v.value("success", 0);

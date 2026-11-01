@@ -1353,6 +1353,42 @@ namespace ED
 		_hitVictim = a_victim->GetHandle();
 	}
 
+	void Executor::OnPreLoad()
+	{
+		Disarm(false);
+		for (auto& [id, m] : _marked) {
+			if (m.downed) {
+				if (auto a = m.handle.get(); a && !a->IsDead()) {
+					SetDowned(a.get(), false);
+				}
+			}
+		}
+		_marked.clear();
+		_attempt = Attempt{};
+		_recent.clear();
+	}
+
+	void Executor::OnPostLoad()
+	{
+		// an enemy saved while kneeling from us would stay down forever: no one is left to stand them up
+		int n = 0;
+		if (auto pl = RE::ProcessLists::GetSingleton()) {
+			pl->ForEachHighActor([&](RE::Actor* a) {
+				auto st = a ? a->AsActorState() : nullptr;
+				if (st && !a->IsPlayerRef() && !a->IsDead() && !a->IsEssential() &&
+					st->actorState1.lifeState == RE::ACTOR_LIFE_STATE::kBleedout &&
+					a->GetActorRuntimeData().boolFlags.all(RE::Actor::BOOL_FLAGS::kNoBleedoutRecovery)) {
+					SetDowned(a, false);
+					++n;
+				}
+				return RE::BSContainer::ForEachResult::kContinue;
+			});
+		}
+		if (n) {
+			logger::info("After loading: let {} kneeling actor(s) get up", n);
+		}
+	}
+
 	void Executor::Unstuck()
 	{
 		auto player = RE::PlayerCharacter::GetSingleton();

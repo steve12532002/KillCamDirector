@@ -26,6 +26,12 @@ namespace
 
 	void OnMessage(SKSE::MessagingInterface::Message* a_msg)
 	{
+		if (a_msg->type == SKSE::MessagingInterface::kPreLoadGame) {
+			ED::Executor::Get().OnPreLoad();
+		}
+		if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame) {
+			ED::Executor::Get().OnPostLoad();
+		}
 		if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
 			ED::Catalog::Get().Build();
 			ED::Catalog::Get().BlockPlayerRandom();

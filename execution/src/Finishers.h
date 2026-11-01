@@ -55,7 +55,7 @@ namespace ED
 		bool IsCreatureGroup() const { return creature || targetSpecific || !raceWord.empty(); }
 
 		// failed repeatedly with this weapon and never proven to work often enough: left out of random picks
-		bool AutoExcluded(int a_wc) const { return fails[a_wc] >= 2 && fails[a_wc] > success * 2; }
+		bool AutoExcluded(int a_wc) const { return fails[a_wc] >= 3 && fails[a_wc] > success * 2; }
 
 		Category GetCategory() const { return userCategory >= 0 ? static_cast<Category>(userCategory) : autoCategory; }
 	};

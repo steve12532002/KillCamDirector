@@ -26,6 +26,8 @@ namespace ED
 		void Tick(RE::PlayerCharacter* a_player, float a_dt);
 		void UpdateMarkerScreen();
 		void Unstuck();
+		void OnPreLoad();   // before a save is loaded: undo armed changes, forget everything
+		void OnPostLoad();  // after: let enemies we left kneeling get up
 		void RequestExecute() { _executeRequested = true; }
 		// called from the input sink: execute right there, like Kaputt's execution key
 		void ExecuteNow()
