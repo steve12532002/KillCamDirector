@@ -206,6 +206,7 @@ namespace ED::UI
 			changed |= ImGuiMCP::Checkbox("Stop random killmoves when YOU attack (NPC killmoves stay)", &s.blockRandomPlayerKillmoves);
 			changed |= ImGuiMCP::Checkbox("Allow essential / protected NPCs", &s.allowEssential);
 			changed |= ImGuiMCP::Checkbox("Prefer finishers made for your weapon", &s.preferWeaponMatch);
+			changed |= ImGuiMCP::Checkbox("Let the game start idle-tree finishers through an attack (VioLens style, fewer failures)", &s.engineKillmoves);
 			changed |= ImGuiMCP::Checkbox("Also execute on hit (when your blow drops them below the threshold)", &s.hitTrigger);
 			if (s.hitTrigger) {
 				changed |= ImGuiMCP::SliderFloat("Chance on hit", &s.hitChance, 1.0f, 100.0f, "%.0f%%");

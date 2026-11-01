@@ -82,6 +82,8 @@ namespace ED
 			bool                   oneSided{ false };
 			int                    refusals{ 0 };
 			bool                   immediate{ false };
+			bool                   engine{ false };
+			float                  engineHp{ 0 };
 			std::vector<Finisher*> refusedList;
 			int                    weaponClass{ 0 };
 		};
@@ -96,6 +98,7 @@ namespace ED
 		void        StartTest(RE::PlayerCharacter* a_player, const std::string& a_key);
 		void        Begin(RE::Actor* a_victim, std::vector<Finisher*> a_cands, int a_wc, bool a_test);
 		void        PrepareVictim(RE::Actor* a_victim);
+		bool        TryEngineKillmove(RE::PlayerCharacter* a_player, RE::Actor* a_victim, const std::vector<Finisher*>& a_cands, int a_wc);
 		static void FaceEachOther(RE::Actor* a_player, RE::Actor* a_victim, Category a_cat);
 		static bool VictimBusy(RE::Actor* a_victim);
 		void        Finish(bool a_ok, const char* a_msg);

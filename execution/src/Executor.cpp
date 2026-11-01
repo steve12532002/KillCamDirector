@@ -645,6 +645,9 @@ namespace ED
 		}
 
 		logger::info("Execute {} ({}, {} weapon): {} candidates", victim->GetDisplayFullName(), CategoryName(cat), WeaponClassName(wc), cands.size());
+		if (s.engineKillmoves && TryEngineKillmove(a_player, victim, cands, wc)) {
+			return;
+		}
 		Begin(victim, std::move(cands), wc, false);
 	}
 
@@ -687,6 +690,142 @@ namespace ED
 		static const RE::BSFixedString kRec("IsRecoiling");
 		static const RE::BSFixedString kBlk("IsBlocking");
 		return GraphBool(a_victim, kAtk) || GraphBool(a_victim, kStag) || GraphBool(a_victim, kRec) || GraphBool(a_victim, kBlk);
+	}
+
+	namespace
+	{
+		// Temporarily unlinks the condition items that only gate random selection (chance, globals, our player
+		// block) from an idle chain, keeping weapon / angle / race checks for the engine to evaluate.
+		class RandomGateStrip
+		{
+		public:
+			void Add(RE::TESIdleForm* a_idle)
+			{
+				int guard = 0;
+				for (auto i = a_idle; i && guard < 32; i = i->parentIdle, ++guard) {
+					if (std::find_if(_heads.begin(), _heads.end(), [&](auto& h) { return h.first == i; }) != _heads.end()) {
+						continue;
+					}
+					_heads.emplace_back(i, i->conditions.head);
+					RE::TESConditionItem*  newHead = nullptr;
+					RE::TESConditionItem** link = &newHead;
+					for (auto item = i->conditions.head; item; item = item->next) {
+						_nexts.emplace_back(item, item->next);
+					}
+					for (auto& [item, next] : std::vector(_nexts.end() - CountItems(i->conditions.head), _nexts.end())) {
+						if (!IgnoredCondition(item)) {
+							*link = item;
+							link = &item->next;
+						}
+					}
+					*link = nullptr;
+					i->conditions.head = newHead;
+				}
+			}
+			~RandomGateStrip()
+			{
+				for (auto& [item, next] : _nexts) {
+					item->next = next;
+				}
+				for (auto& [idle, head] : _heads) {
+					idle->conditions.head = head;
+				}
+			}
+
+		private:
+			static std::ptrdiff_t CountItems(RE::TESConditionItem* a_head)
+			{
+				std::ptrdiff_t n = 0;
+				for (auto i = a_head; i; i = i->next) {
+					++n;
+				}
+				return n;
+			}
+			std::vector<std::pair<RE::TESIdleForm*, RE::TESConditionItem*>>     _heads;
+			std::vector<std::pair<RE::TESConditionItem*, RE::TESConditionItem*>> _nexts;
+		};
+	}
+
+	bool Executor::TryEngineKillmove(RE::PlayerCharacter* a_player, RE::Actor* a_victim, const std::vector<Finisher*>& a_cands, int a_wc)
+	{
+		// VioLens never plays a killmove itself: it only decides which idles are allowed and lets the game's own
+		// killmove system pick one when an attack starts. That path always works, because the game starts the pair
+		// from inside the attack where the transition exists. Do the same: allow the chosen finishers, make the
+		// next blow lethal and start an attack.
+		if (a_cands.empty() || !a_cands.front()->idles.front()->parentIdle) {
+			return false;  // first pick is a stand-alone (Kaputt-style) idle: play it directly
+		}
+		std::vector<Finisher*> chosen;
+		for (auto f : a_cands) {
+			bool inTree = false, pass = false;
+			for (auto idle : f->idles) {
+				if (idle->parentIdle) {
+					inTree = true;
+					int fn = 0;
+					pass = pass || IdleConditionsPass(idle, a_player, a_victim, fn);
+				}
+			}
+			if (inTree && pass) {
+				chosen.push_back(f);
+			}
+			if (chosen.size() >= 3) {
+				break;
+			}
+		}
+		if (chosen.empty()) {
+			return false;
+		}
+		auto dom = RE::BGSDefaultObjectManager::GetSingleton();
+		auto attack = dom ? dom->GetObject<RE::BGSAction>(RE::DEFAULT_OBJECT::kActionRightAttack) : nullptr;
+		auto avo = a_victim->AsActorValueOwner();
+		if (!attack || !avo) {
+			return false;
+		}
+
+		PrepareVictim(a_victim);
+		FaceEachOther(a_player, a_victim, chosen.front()->GetCategory());
+		// the game only starts a killmove when the blow would kill
+		float hp = avo->GetActorValue(RE::ActorValue::kHealth);
+		if (hp > 1.0f) {
+			avo->DamageActorValue(RE::ActorValue::kHealth, hp - 1.0f);
+		}
+		bool started = false;
+		{
+			RandomGateStrip strip;
+			for (auto f : chosen) {
+				for (auto idle : f->idles) {
+					if (idle->parentIdle) {
+						strip.Add(idle);
+					}
+				}
+			}
+			auto action = RE::TESActionData::Create();
+			if (action) {
+				action->source = RE::NiPointer<RE::TESObjectREFR>(a_player);
+				action->target = RE::NiPointer<RE::TESObjectREFR>(a_victim);
+				action->action = attack;
+				action->Process();
+				action->~TESActionData();
+				RE::free(action);
+			}
+			started = a_player->IsInKillMove() || IsSynced(a_player);
+		}
+		std::string names;
+		for (auto f : chosen) {
+			names += f->event + " ";
+		}
+		logger::info("  attack sent for a game killmove (allowed: {}){}", names, started ? " - started" : "");
+		// the killmove may only begin a frame or two later: watch for it in UpdateAttempt
+		_attempt = Attempt{};
+		_attempt.active = true;
+		_attempt.victim = a_victim->GetHandle();
+		_attempt.weaponClass = a_wc;
+		_attempt.prepped = true;
+		_attempt.engine = true;
+		_attempt.engineHp = hp;
+		_attempt.candidates = a_cands;
+		_attempt.current = chosen.front();  // best guess; the game picked one of these
+		return true;
 	}
 
 	void Executor::FaceEachOther(RE::Actor* a_player, RE::Actor* a_victim, Category a_cat)
@@ -831,6 +970,29 @@ namespace ED
 		auto  victim = _attempt.victim.get();
 		if (!victim) {
 			_attempt.active = false;
+			return;
+		}
+
+		// 0. game killmove requested: did the game start it?
+		if (_attempt.engine && !_attempt.started) {
+			_attempt.timer += a_dt;
+			if (a_player->IsInKillMove() || IsSynced(a_player)) {
+				_attempt.engine = false;  // from here on it is an ordinary running pair
+				_attempt.timer = 0;
+				return;
+			}
+			if (_attempt.timer < 0.35f) {
+				return;
+			}
+			// not taken: give the health back and play one directly
+			logger::info("  game killmove not started, playing directly");
+			if (auto avo = victim->AsActorValueOwner(); avo && _attempt.engineHp > 1.0f) {
+				avo->RestoreActorValue(RE::ActorValue::kHealth, _attempt.engineHp - 1.0f);
+			}
+			auto cands = std::move(_attempt.candidates);
+			int  wc = _attempt.weaponClass;
+			_attempt.active = false;
+			Begin(victim.get(), std::move(cands), wc, false);
 			return;
 		}
 

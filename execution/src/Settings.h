@@ -50,6 +50,7 @@ namespace ED
 		// [Debug]
 		bool verbose{ false };
 		bool cancelUnpaired{ true };
+		bool  engineKillmoves{ true };  // let the game start idle-tree killmoves (VioLens style)
 		bool  hitTrigger{ false };  // also execute when your hit drops an enemy below the threshold
 		float hitChance{ 100.0f };  // stop the player's animation when the victim does not follow
 
