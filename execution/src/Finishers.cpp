@@ -179,8 +179,15 @@ namespace ED
 				for (auto i = idle; i && guard < 32; i = i->parentIdle, ++guard) {
 					for (auto item = i->conditions.head; item; item = item->next) {
 						auto fn = item->data.functionData.function.get();
+						// only a positive "the target IS race X" check makes it race-specific; VioLens' trees are full
+						// of "target is NOT race X" exclusions that apply to ordinary human killmoves
+						using Op = RE::CONDITION_ITEM_DATA::OpCode;
+						auto op = item->data.flags.opCode;
+						float v = item->data.comparisonValue.f;
+						bool  positive = (op == Op::kEqualTo && v >= 1.0f) || (op == Op::kNotEqualTo && v < 0.5f) ||
+						                (op == Op::kGreaterThanOrEqualTo && v >= 1.0f) || (op == Op::kGreaterThan && v >= 0.5f);
 						if ((fn == RE::FUNCTION_DATA::FunctionID::kGetIsRace || fn == RE::FUNCTION_DATA::FunctionID::kGetIsID) &&
-							item->data.object == RE::CONDITIONITEMOBJECT::kTarget) {
+							item->data.object == RE::CONDITIONITEMOBJECT::kTarget && positive) {
 							f.targetSpecific = true;
 						}
 					}

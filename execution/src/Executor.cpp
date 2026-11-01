@@ -919,13 +919,23 @@ namespace ED
 			if (std::any_of(f->idles.begin(), f->idles.end(), [](auto i) { return i->parentIdle != nullptr; })) {
 				ctx->chosen.push_back(f);
 			}
-			if (ctx->chosen.size() >= 4) {
+			if (ctx->chosen.size() >= 6) {
 				break;
 			}
 		}
 		if (ctx->chosen.empty()) {
-			logger::info("Arm on {}: none of the {} candidates is in the idle tree", a_victim->GetDisplayFullName(), cands.size());
-			return false;
+			// nothing of ours fits: at least let the idle-tree killmoves (VioLens') choose for themselves this time
+			for (auto& f : Catalog::Get().All()) {
+				if (f.killmove && f.on[wc] && !f.IsCreatureGroup() &&
+					std::any_of(f.idles.begin(), f.idles.end(), [](auto i) { return i->parentIdle != nullptr; })) {
+					ctx->chosen.push_back(&f);
+				}
+			}
+			logger::info("Arm on {}: none of the {} candidates is in the idle tree - allowing all {} idle-tree killmoves",
+				a_victim->GetDisplayFullName(), cands.size(), ctx->chosen.size());
+			if (ctx->chosen.empty()) {
+				return false;
+			}
 		}
 		ctx->victim = a_victim->GetHandle();
 		ctx->wc = wc;
