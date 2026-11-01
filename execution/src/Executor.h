@@ -51,6 +51,8 @@ namespace ED
 			RE::ActorHandle handle;
 			float           markedAt{ 0 };
 			float           lastStagger{ -100 };
+			bool            downed{ false };  // we put them in bleedout
+			bool            bleedDone{ false };
 		};
 
 		struct Attempt
@@ -76,6 +78,9 @@ namespace ED
 
 		void        UpdateMarks(RE::PlayerCharacter* a_player);
 		void        UpdateStagger(RE::PlayerCharacter* a_player);
+		void        UpdateBleedout();
+		static void SetDowned(RE::Actor* a_actor, bool a_down);
+		bool        IsVictim(RE::Actor* a_actor);
 		void        UpdateMarkerScreen();
 		void        StartExecution(RE::PlayerCharacter* a_player);
 		void        StartTest(RE::PlayerCharacter* a_player, const std::string& a_key);

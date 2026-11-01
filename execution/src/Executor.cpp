@@ -219,9 +219,83 @@ namespace ED
 		}
 		for (auto it = _marked.begin(); it != _marked.end();) {
 			if (!seen.contains(it->first)) {
+				// no longer executable (healed, out of range...): let them get up - unless they are being executed
+				if (it->second.downed) {
+					auto a = it->second.handle.get();
+					if (a && !a->IsDead() && !IsVictim(a.get()) && !a->IsInKillMove() && !IsSynced(a.get())) {
+						SetDowned(a.get(), false);
+					}
+				}
 				it = _marked.erase(it);
 			} else {
 				++it;
+			}
+		}
+	}
+
+	bool Executor::IsVictim(RE::Actor* a_actor)
+	{
+		if (!_attempt.active) {
+			return false;
+		}
+		auto v = _attempt.victim.get();
+		return v && v.get() == a_actor;
+	}
+
+	void Executor::SetDowned(RE::Actor* a_actor, bool a_down)
+	{
+		static const RE::BSFixedString kStart("BleedoutStart");
+		static const RE::BSFixedString kStop("BleedoutStop");
+		auto st = a_actor->AsActorState();
+		if (!st) {
+			return;
+		}
+		auto& flags = a_actor->GetActorRuntimeData().boolFlags;
+		if (a_down) {
+			st->actorState1.lifeState = RE::ACTOR_LIFE_STATE::kBleedout;
+			flags.set(RE::Actor::BOOL_FLAGS::kNoBleedoutRecovery);
+			a_actor->NotifyAnimationGraph(kStart);
+		} else {
+			flags.reset(RE::Actor::BOOL_FLAGS::kNoBleedoutRecovery);
+			if (st->actorState1.lifeState == RE::ACTOR_LIFE_STATE::kBleedout) {
+				st->actorState1.lifeState = RE::ACTOR_LIFE_STATE::kAlive;
+			}
+			a_actor->NotifyAnimationGraph(kStop);
+		}
+	}
+
+	void Executor::UpdateBleedout()
+	{
+		auto& s = Settings::Get();
+		for (auto& [id, m] : _marked) {
+			auto a = m.handle.get();
+			if (!a || a->IsDead()) {
+				continue;
+			}
+			bool busy = IsVictim(a.get()) || a->IsInKillMove() || IsSynced(a.get());
+			if (!m.downed && !m.bleedDone && s.bleedoutEnabled && !busy) {
+				if (auto st = a->AsActorState(); st && !st->IsBleedingOut()) {
+					SetDowned(a.get(), true);
+					if (s.verbose) {
+						logger::info("{} kneels (bleedout)", a->GetDisplayFullName());
+					}
+				}
+				m.downed = true;
+				m.markedAt = _clock;
+				continue;
+			}
+			if (!m.downed || busy) {
+				continue;
+			}
+			if (_clock - m.markedAt >= s.bleedoutTime) {
+				SetDowned(a.get(), false);
+				m.downed = false;
+				m.bleedDone = true;
+				continue;
+			}
+			// the engine may try to let them recover on its own
+			if (auto st = a->AsActorState(); st && st->actorState1.lifeState != RE::ACTOR_LIFE_STATE::kBleedout) {
+				st->actorState1.lifeState = RE::ACTOR_LIFE_STATE::kBleedout;
 			}
 		}
 	}
@@ -237,7 +311,7 @@ namespace ED
 		auto busyVictim = _attempt.active ? _attempt.victim.get() : RE::NiPointer<RE::Actor>{};
 		for (auto& [id, m] : _marked) {
 			auto a = m.handle.get();
-			if (!a || (busyVictim && a.get() == busyVictim.get())) {
+			if (!a || (busyVictim && a.get() == busyVictim.get()) || m.downed) {
 				continue;
 			}
 			if (_clock - m.markedAt > s.staggerWindow) {
@@ -386,10 +460,23 @@ namespace ED
             }
             return v;
 		};
-		std::vector<Finisher*> cands = collect(cat);
+		// a kneeling victim: bleedout finishers, plus the normal ones for where you stand (they pull the victim up)
+		auto gather = [&]() {
+			std::vector<Finisher*> v = collect(cat);
+			if (cat == Category::kBleed) {
+				float ang = std::abs(victim->GetHeadingAngle(a_player->GetPosition(), true));
+				for (auto f : collect(ang > 110.0f ? Category::kBack : Category::kFront)) {
+					if (std::find(v.begin(), v.end(), f) == v.end()) {
+						v.push_back(f);
+					}
+				}
+			}
+			return v;
+		};
+		std::vector<Finisher*> cands = gather();
 		if (cands.empty()) {
 			useAutoOff = false;  // everything was auto-off: better to try them again than do nothing
-			cands = collect(cat);
+			cands = gather();
 		}
 		if (cands.empty() && cat == Category::kSneak) cands = collect(Category::kBack);
 		if (cands.empty() && cat != Category::kFront) cands = collect(Category::kFront);
@@ -778,6 +865,7 @@ namespace ED
 			_scanTimer = 0.2f;
 			UpdateMarks(a_player);
 		}
+		UpdateBleedout();
 		UpdateStagger(a_player);
 		if (_executeRequested.exchange(false)) {
 			StartExecution(a_player);

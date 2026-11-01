@@ -33,6 +33,8 @@ namespace ED
 			s.notifications = ini.GetBoolValue("General", "bNotifications", s.notifications);
 
 			s.staggerEnabled = ini.GetBoolValue("Stagger", "bEnabled", s.staggerEnabled);
+			s.bleedoutEnabled = ini.GetBoolValue("Bleedout", "bEnabled", s.bleedoutEnabled);
+			s.bleedoutTime = F(ini, "Bleedout", "fTime", s.bleedoutTime);
 			s.staggerInterval = F(ini, "Stagger", "fInterval", s.staggerInterval);
 			s.staggerMagnitude = F(ini, "Stagger", "fMagnitude", s.staggerMagnitude);
 			s.staggerWindow = F(ini, "Stagger", "fWindow", s.staggerWindow);
@@ -77,6 +79,8 @@ namespace ED
 		ini.SetBoolValue("General", "bAllowEssential", allowEssential);
 		ini.SetBoolValue("General", "bPreferWeaponMatch", preferWeaponMatch);
 		ini.SetBoolValue("Stagger", "bEnabled", staggerEnabled);
+		ini.SetBoolValue("Bleedout", "bEnabled", bleedoutEnabled);
+		ini.SetDoubleValue("Bleedout", "fTime", bleedoutTime);
 		ini.SetDoubleValue("Stagger", "fInterval", staggerInterval);
 		ini.SetBoolValue("Marker", "bEnabled", markerEnabled);
 		ini.SetDoubleValue("Marker", "fSize", markerSize);

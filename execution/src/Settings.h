@@ -31,6 +31,8 @@ namespace ED
 		bool          notifications{ true };
 
 		// [Stagger]
+		bool  bleedoutEnabled{ true };   // executable enemies kneel (bleedout) for a while
+		float bleedoutTime{ 8.0f };
 		bool  staggerEnabled{ true };
 		float staggerInterval{ 2.5f };
 		float staggerMagnitude{ 0.8f };

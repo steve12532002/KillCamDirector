@@ -209,7 +209,11 @@ namespace ED::UI
 			changed |= ImGuiMCP::Checkbox("Cancel at once when the enemy does not follow (turn off if you get stuck)", &s.cancelUnpaired);
 
 			ImGuiMCP::SeparatorText("Executable enemies");
-			changed |= ImGuiMCP::Checkbox("Stagger them while executable", &s.staggerEnabled);
+			changed |= ImGuiMCP::Checkbox("Make them kneel (bleedout) when they become executable", &s.bleedoutEnabled);
+			if (s.bleedoutEnabled) {
+				changed |= ImGuiMCP::SliderFloat("Kneel for", &s.bleedoutTime, 2.0f, 20.0f, "%.0f s");
+			}
+			changed |= ImGuiMCP::Checkbox("Stagger them while executable (when not kneeling)", &s.staggerEnabled);
 			if (s.staggerEnabled) {
 				changed |= ImGuiMCP::SliderFloat("Stagger every", &s.staggerInterval, 1.0f, 6.0f, "%.1f s");
 			}
