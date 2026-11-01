@@ -5,6 +5,10 @@
 
 #include <MinHook.h>
 
+#ifdef GetObject
+#	undef GetObject  // windows.h (UNICODE) renames it to GetObjectW
+#endif
+
 namespace ED
 {
 	namespace
