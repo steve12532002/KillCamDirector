@@ -757,9 +757,16 @@ namespace ED
 				return true;
 			}
 			if (++_attempt.refusals < 3) {
-				// wait a moment and ask again with the same animation
+				// The player's behavior graph has no way into the paired state from where it is now (combat
+				// stances and attack states added by combat mods often lack it). Drop both graphs back to the
+				// default state, which always has that transition, then ask again with the same animation.
+				static const RE::BSFixedString kDefault("IdleForceDefaultState");
+				a_player->NotifyAnimationGraph(kDefault);
+				if (_attempt.refusals == 2) {
+					victim->NotifyAnimationGraph(kDefault);
+				}
 				_attempt.prepped = false;
-				_attempt.prepTimer = -0.15f;
+				_attempt.prepTimer = -0.12f;
 				return true;
 			}
 			logger::info("  try {} ({}) -> refused 3 times", f->event, idle->GetFormEditorID());
