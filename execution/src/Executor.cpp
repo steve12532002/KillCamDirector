@@ -1033,6 +1033,29 @@ namespace ED
 		a_victim->SetHeading(victimHeading);
 	}
 
+	void Executor::ReleaseKneel(RE::Actor* a_victim, bool a_standUp)
+	{
+		// The game refuses paired idles on a victim whose life state is bleedout - which is why refusals jumped
+		// once enemies were made to kneel. Lift the state (the kneeling pose stays) and forget the kneel timer;
+		// after a refusal also play the stand-up so the graph leaves the bleedout state too.
+		auto st = a_victim->AsActorState();
+		if (!st) {
+			return;
+		}
+		if (auto it = _marked.find(a_victim->GetFormID()); it != _marked.end()) {
+			it->second.downed = false;
+			it->second.bleedDone = true;
+		}
+		a_victim->GetActorRuntimeData().boolFlags.reset(RE::Actor::BOOL_FLAGS::kNoBleedoutRecovery);
+		if (st->actorState1.lifeState == RE::ACTOR_LIFE_STATE::kBleedout) {
+			st->actorState1.lifeState = RE::ACTOR_LIFE_STATE::kAlive;
+		}
+		if (a_standUp) {
+			static const RE::BSFixedString kStop("BleedoutStop");
+			a_victim->NotifyAnimationGraph(kStop);
+		}
+	}
+
 	void Executor::PrepareVictim(RE::Actor* a_victim)
 	{
 		// a paired animation is only accepted while the victim's graph is free: cut their attack, stagger or idle
@@ -1098,6 +1121,7 @@ namespace ED
 				}
 			}
 			FaceEachOther(a_player, victim.get(), f->GetCategory());
+			ReleaseKneel(victim.get(), _attempt.refusals > 0);
 			bool ok = false;
 			{
 				ConditionStrip strip(idle);

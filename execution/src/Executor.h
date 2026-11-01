@@ -110,6 +110,7 @@ namespace ED
 		void        StartTest(RE::PlayerCharacter* a_player, const std::string& a_key);
 		void        Begin(RE::Actor* a_victim, std::vector<Finisher*> a_cands, int a_wc, bool a_test);
 		void        PrepareVictim(RE::Actor* a_victim);
+		void        ReleaseKneel(RE::Actor* a_victim, bool a_standUp);
 		RE::Actor*  PickVictim(RE::PlayerCharacter* a_player);
 		bool        ArmOn(RE::PlayerCharacter* a_player, RE::Actor* a_victim, float a_window);
 		void        Disarm(bool a_started);
