@@ -49,7 +49,9 @@ namespace ED
 
 		// [Debug]
 		bool verbose{ false };
-		bool cancelUnpaired{ true };  // stop the player's animation when the victim does not follow
+		bool cancelUnpaired{ true };
+		bool  hitTrigger{ false };  // also execute when your hit drops an enemy below the threshold
+		float hitChance{ 100.0f };  // stop the player's animation when the victim does not follow
 
 	private:
 		Settings() = default;

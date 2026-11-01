@@ -46,6 +46,8 @@ namespace ED
 			s.markerOffsetY = F(ini, "Marker", "fOffsetY", s.markerOffsetY);
 			s.markerHeight = F(ini, "Marker", "fHeight", s.markerHeight);
 			s.cancelUnpaired = ini.GetBoolValue("General", "bCancelUnpaired", s.cancelUnpaired);
+			s.hitTrigger = ini.GetBoolValue("HitTrigger", "bEnabled", s.hitTrigger);
+			s.hitChance = F(ini, "HitTrigger", "fChance", s.hitChance);
 			s.markerR = static_cast<int>(ini.GetLongValue("Marker", "iRed", s.markerR));
 			s.markerG = static_cast<int>(ini.GetLongValue("Marker", "iGreen", s.markerG));
 			s.markerB = static_cast<int>(ini.GetLongValue("Marker", "iBlue", s.markerB));
@@ -72,6 +74,8 @@ namespace ED
 		ini.SetUnicode();
 		ini.SetBoolValue("General", "bEnabled", enabled);
 		ini.SetBoolValue("General", "bCancelUnpaired", cancelUnpaired);
+		ini.SetBoolValue("HitTrigger", "bEnabled", hitTrigger);
+		ini.SetDoubleValue("HitTrigger", "fChance", hitChance);
 		ini.SetLongValue("General", "iExecuteKey", static_cast<long>(executeKey));
 		ini.SetDoubleValue("General", "fHealthThreshold", healthThreshold);
 		ini.SetDoubleValue("General", "fExecuteRange", executeRange);

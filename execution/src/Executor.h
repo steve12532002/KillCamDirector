@@ -25,6 +25,14 @@ namespace ED
 		void Tick(RE::PlayerCharacter* a_player, float a_dt);
 		void UpdateMarkerScreen();
 		void RequestExecute() { _executeRequested = true; }
+		// called from the input sink: execute right there, like Kaputt's execution key
+		void ExecuteNow()
+		{
+			if (auto player = RE::PlayerCharacter::GetSingleton()) {
+				StartExecution(player);
+			}
+		}
+		void OnPlayerHit(RE::Actor* a_victim, RE::HitData& a_hit, bool a_after);
 		void ForceNext(const std::string& a_key) { _forcedNext = a_key; }
 		void RequestTest(const std::string& a_key)
 		{
@@ -73,6 +81,7 @@ namespace ED
 			bool                   test{ false };
 			bool                   oneSided{ false };
 			int                    refusals{ 0 };
+			bool                   immediate{ false };
 			std::vector<Finisher*> refusedList;
 			int                    weaponClass{ 0 };
 		};
@@ -83,7 +92,7 @@ namespace ED
 		static void SetDowned(RE::Actor* a_actor, bool a_down);
 		bool        IsVictim(RE::Actor* a_actor);
 
-		void        StartExecution(RE::PlayerCharacter* a_player);
+		void        StartExecution(RE::PlayerCharacter* a_player, RE::Actor* a_victim = nullptr);
 		void        StartTest(RE::PlayerCharacter* a_player, const std::string& a_key);
 		void        Begin(RE::Actor* a_victim, std::vector<Finisher*> a_cands, int a_wc, bool a_test);
 		void        PrepareVictim(RE::Actor* a_victim);
@@ -109,6 +118,7 @@ namespace ED
 		std::string                                 _testKey;
 		std::string                                 _lastResult;
 		std::deque<Finisher*>                       _recent;
+		RE::ActorHandle                             _hitVictim;
 		std::mt19937                                _rng{ std::random_device{}() };
 	};
 }

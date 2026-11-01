@@ -44,7 +44,7 @@ namespace ED::Input
 						continue;
 					}
 					if (s.enabled && s.executeKey && code == s.executeKey) {
-						Executor::Get().RequestExecute();
+						Executor::Get().ExecuteNow();
 					}
 				}
 				return RE::BSEventNotifyControl::kContinue;

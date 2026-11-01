@@ -41,6 +41,28 @@ namespace ED
 			static inline REL::Relocation<decltype(thunk)> func;
 		};
 
+		struct HitHook
+		{
+			static void thunk(RE::Actor* a_victim, RE::HitData& a_hit)
+			{
+				Executor::Get().OnPlayerHit(a_victim, a_hit, false);
+				func(a_victim, a_hit);
+				Executor::Get().OnPlayerHit(a_victim, a_hit, true);
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+
+		float DamageMult()
+		{
+			static const char* kDiff[] = { "VE", "E", "N", "H", "VH", "L" };
+			auto player = RE::PlayerCharacter::GetSingleton();
+			int  d = player ? std::clamp(player->GetGameStatsData().difficulty, 0, 5) : 2;
+			auto name = std::string("fDiffMultHPByPC") + kDiff[d];
+			auto gs = RE::GameSettingCollection::GetSingleton();
+			auto setting = gs ? gs->GetSetting(name.c_str()) : nullptr;
+			return setting ? setting->data.f : 1.0f;
+		}
+
 		// in a paired animation: the GetPairedAnimation condition (what Kaputt uses) or the synced graph variable
 		bool IsSynced(RE::Actor* a_actor)
 		{
@@ -183,9 +205,13 @@ namespace ED
 	{
 		{
 			REL::Relocation<std::uintptr_t> mainUpdate{ RELOCATION_ID(35551, 36544), REL::VariantOffset(0x11F, 0x160, 0x0) };
-			SKSE::AllocTrampoline(14);
+			SKSE::AllocTrampoline(64);
 			MainUpdateHook::func = SKSE::GetTrampoline().write_call<5>(mainUpdate.address(), MainUpdateHook::thunk);
 			logger::info("Main update hook installed");
+			// hit processing (Kaputt's post-hit trigger uses the same spot)
+			REL::Relocation<std::uintptr_t> processHit{ RELOCATION_ID(37673, 38627), REL::VariantOffset(0x3C0, 0x4A8, 0x0) };
+			HitHook::func = SKSE::GetTrampoline().write_call<5>(processHit.address(), HitHook::thunk);
+			logger::info("Hit hook installed");
 		}
 		REL::Relocation<std::uintptr_t> target{ RELOCATION_ID(49852, 50784) };
 		MH_STATUS st = MH_Initialize();
@@ -451,16 +477,19 @@ namespace ED
 		return ang > 110.0f ? Category::kBack : Category::kFront;
 	}
 
-	void Executor::StartExecution(RE::PlayerCharacter* a_player)
+	void Executor::StartExecution(RE::PlayerCharacter* a_player, RE::Actor* a_victim)
 	{
 		auto& s = Settings::Get();
 		if (_attempt.active || a_player->IsInKillMove() || IsSynced(a_player)) {
 			return;
 		}
-		// nearest marked enemy in front of you and within reach
-		RE::Actor* victim = nullptr;
+		// nearest marked enemy in front of you and within reach (or the one just hit)
+		RE::Actor* victim = a_victim;
 		float      best = s.executeRange;
 		for (auto& [id, m] : _marked) {
+			if (victim) {
+				break;
+			}
 			auto a = m.handle.get();
 			if (!a) {
 				continue;
@@ -697,9 +726,6 @@ namespace ED
 		a_victim->NotifyAnimationGraph(kAttackStop);
 		a_victim->NotifyAnimationGraph(kStaggerStop);
 		a_victim->NotifyAnimationGraph(kBlockStop);
-		if (!VictimBusy(a_victim)) {
-			a_victim->NotifyAnimationGraph(kDefault);
-		}
 	}
 
 	void Executor::Begin(RE::Actor* a_victim, std::vector<Finisher*> a_cands, int a_wc, bool a_test)
@@ -711,6 +737,14 @@ namespace ED
 		_attempt.weaponClass = a_wc;
 		_attempt.test = a_test;
 		PrepareVictim(a_victim);
+		// like Kaputt: play right away, in the same frame as the trigger (key press or hit)
+		_attempt.prepped = true;
+		_attempt.immediate = true;
+		auto player = RE::PlayerCharacter::GetSingleton();
+		if (player && !TryNext(player)) {
+			Finish(false, "\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");
+		}
+		_attempt.immediate = false;
 	}
 
 	bool Executor::TryNext(RE::PlayerCharacter* a_player)
@@ -755,6 +789,16 @@ namespace ED
 				++_attempt.tries;
 				_attempt.refusals = 0;
 				return true;
+			}
+			if (_attempt.immediate && _attempt.index + 1 < _attempt.candidates.size() && _attempt.tries < 3) {
+				logger::info("  try {} ({}) -> refused, next", f->event, idle->GetFormEditorID());
+				++_attempt.index;
+				++_attempt.tries;
+				continue;
+			}
+			if (_attempt.immediate) {
+				_attempt.index = 0;
+				_attempt.tries = 0;
 			}
 			if (++_attempt.refusals < 3) {
 				// The player's behavior graph has no way into the paired state from where it is now (combat
@@ -912,6 +956,50 @@ namespace ED
 		if (a_victim) {
 			ClearKillMove(a_victim);
 		}
+	}
+
+	void Executor::OnPlayerHit(RE::Actor* a_victim, RE::HitData& a_hit, bool a_after)
+	{
+		auto& s = Settings::Get();
+		auto  player = RE::PlayerCharacter::GetSingleton();
+		if (!s.enabled || !s.hitTrigger || !player || !a_victim) {
+			return;
+		}
+		if (a_after) {
+			auto pending = _hitVictim.get();
+			_hitVictim.reset();
+			if (pending && pending.get() == a_victim && !a_victim->IsDead() && IsExecutable(player, a_victim)) {
+				logger::info("Hit trigger on {}", a_victim->GetDisplayFullName());
+				StartExecution(player, a_victim);
+			}
+			return;
+		}
+		auto aggressor = a_hit.aggressor.get();
+		if (!aggressor || aggressor.get() != player || _attempt.active || a_victim->IsDead() ||
+			player->IsInKillMove() || IsSynced(player) || a_victim->IsInKillMove() || IsSynced(a_victim)) {
+			return;
+		}
+		auto avo = a_victim->AsActorValueOwner();
+		if (!avo) {
+			return;
+		}
+		float hp = avo->GetActorValue(RE::ActorValue::kHealth);
+		float maxHp = avo->GetPermanentActorValue(RE::ActorValue::kHealth);
+		float mult = DamageMult();
+		float after = hp - a_hit.totalDamage * mult;
+		if (maxHp <= 0.0f || after / maxHp > s.healthThreshold) {
+			return;
+		}
+		std::uniform_real_distribution<float> roll(0.0f, 100.0f);
+		if (roll(_rng) >= s.hitChance) {
+			return;
+		}
+		// like VioLens / Kaputt post-hit: the hit leaves them alive and does not stagger, the finisher does the rest
+		if (after < 1.0f && mult > 0.0f) {
+			a_hit.totalDamage = std::max(0.0f, (hp - 1.0f) / mult);
+		}
+		a_hit.stagger = 0.0f;
+		_hitVictim = a_victim->GetHandle();
 	}
 
 	void Executor::Finish(bool a_ok, const char* a_msg)
