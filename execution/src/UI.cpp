@@ -209,15 +209,16 @@ namespace ED::UI
 			changed |= ImGuiMCP::Checkbox("Prefer finishers made for your weapon", &s.preferWeaponMatch);
 			ImGuiMCP::SeparatorText("How executions start");
 			ImGuiMCP::TextWrapped(
-				"Like VioLens: the execute key arms your next attack on the marked enemy, and the game's own killmove system "
-				"turns that attack into the finisher (only the finishers picked by your On/Chance settings are allowed). "
-				"If the game cannot do it this time, the attack simply lands as a normal blow.");
+				"Default: the execute key plays the finisher at once. Vanilla killmoves are played through stand-alone twins "
+				"(no idle tree), the same way Low-blow and Thicc Thighs finishers start. "
+				"The alternative arms your next attack and lets the game's own killmove system do it (VioLens style) - "
+				"this only works when the attack trees still lead to killmoves (e.g. with VioLens' plugin loaded).");
 			changed |= ImGuiMCP::SliderFloat("Key arms the next attack for", &s.armWindow, 1.0f, 8.0f, "%.1f s");
 			changed |= ImGuiMCP::Checkbox("Also without the key: attacks on a marked enemy execute automatically", &s.hitTrigger);
 			if (s.hitTrigger) {
 				changed |= ImGuiMCP::SliderFloat("Automatic chance", &s.hitChance, 1.0f, 100.0f, "%.0f%%");
 			}
-			changed |= ImGuiMCP::Checkbox("Old way: the key plays the finisher directly (Kaputt style, often fails)", &s.directPlay);
+			changed |= ImGuiMCP::Checkbox("Key plays the finisher at once (off = arm the next attack, VioLens style)", &s.directPlay);
 			changed |= ImGuiMCP::Checkbox("Cancel at once when the enemy does not follow (turn off if you get stuck)", &s.cancelUnpaired);
 
 			ImGuiMCP::SeparatorText("Executable enemies");

@@ -48,7 +48,7 @@ namespace ED
 			s.cancelUnpaired = ini.GetBoolValue("General", "bCancelUnpaired", s.cancelUnpaired);
 			s.hitTrigger = ini.GetBoolValue("HitTrigger", "bEnabled", s.hitTrigger);
 			s.engineKillmoves = ini.GetBoolValue("General", "bGameKillmoves", s.engineKillmoves);
-			s.directPlay = ini.GetBoolValue("General", "bDirectPlay", s.directPlay);
+			s.directPlay = ini.GetBoolValue("General", "bDirectPlay2", s.directPlay);
 			s.armWindow = F(ini, "General", "fArmWindow", s.armWindow);
 			s.hitChance = F(ini, "HitTrigger", "fChance", s.hitChance);
 			s.markerR = static_cast<int>(ini.GetLongValue("Marker", "iRed", s.markerR));
@@ -79,7 +79,7 @@ namespace ED
 		ini.SetBoolValue("General", "bCancelUnpaired", cancelUnpaired);
 		ini.SetBoolValue("HitTrigger", "bEnabled", hitTrigger);
 		ini.SetBoolValue("General", "bGameKillmoves", engineKillmoves);
-		ini.SetBoolValue("General", "bDirectPlay", directPlay);
+		ini.SetBoolValue("General", "bDirectPlay2", directPlay);
 		ini.SetDoubleValue("General", "fArmWindow", armWindow);
 		ini.SetDoubleValue("HitTrigger", "fChance", hitChance);
 		ini.SetLongValue("General", "iExecuteKey", static_cast<long>(executeKey));

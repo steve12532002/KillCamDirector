@@ -253,6 +253,36 @@ namespace ED
 			logger::warn("Could not read {}: {}", kMetaFile, ex.what());
 		}
 
+		// Idle-tree killmoves are refused when played directly (their tree sits under attack roots that combat
+		// mods rebuild), while stand-alone idles such as Low-blow's and Thicc's play fine. Give every idle-tree
+		// killmove a stand-alone twin - same animation event, no parent, no conditions - and play that one.
+		{
+			auto factory = RE::IFormFactory::GetConcreteFormFactoryByType<RE::TESIdleForm>();
+			int  made = 0;
+			for (auto& f : _list) {
+				if (!f.killmove || f.idles.empty() ||
+					std::any_of(f.idles.begin(), f.idles.end(), [](auto i) { return i->parentIdle == nullptr; })) {
+					continue;
+				}
+				auto src = f.idles.front();
+				auto clone = factory ? factory->Create() : nullptr;
+				if (!clone) {
+					break;
+				}
+				clone->data = src->data;
+				clone->data.flags = RE::IDLE_DATA::Flag::kNone;
+				clone->conditions.head = nullptr;
+				clone->childIdles = nullptr;
+				clone->parentIdle = nullptr;
+				clone->prevIdle = nullptr;
+				clone->animFileName = src->animFileName;
+				clone->animEventName = src->animEventName;
+				f.idles.insert(f.idles.begin(), clone);
+				++made;
+			}
+			logger::info("Made {} stand-alone twins of idle-tree killmoves", made);
+		}
+
 		std::sort(_list.begin(), _list.end(), [](const Finisher& a, const Finisher& b) {
 			if (a.killmove != b.killmove) return a.killmove;
 			if (a.creature != b.creature) return !a.creature;

@@ -543,7 +543,12 @@ namespace ED
 				int  failFn = 0;
 				bool any = false;
 				bool raceFail = true;
+				// judge by the original idle-tree entries; our stand-alone clones have no conditions of their own
+				const bool hasTree = std::any_of(f->idles.begin(), f->idles.end(), [](auto i) { return i->parentIdle != nullptr; });
 				for (auto idle : f->idles) {
+					if (hasTree && !idle->parentIdle) {
+						continue;
+					}
 					if (IdleConditionsPass(idle, a_player, victim, failFn)) {
 						any = true;
 						raceFail = false;
