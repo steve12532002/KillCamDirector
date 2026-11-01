@@ -12,24 +12,56 @@ namespace ED
 		using UpdateFn = void (*)(RE::PlayerCamera*);
 		UpdateFn g_origUpdate = nullptr;
 
+		// camera update: only the marker positions (needs this frame's camera)
 		void HookedUpdate(RE::PlayerCamera* a_this)
 		{
 			g_origUpdate(a_this);
-			auto player = RE::PlayerCharacter::GetSingleton();
 			auto ui = RE::UI::GetSingleton();
-			if (!player || (ui && ui->GameIsPaused())) {
+			if (ui && ui->GameIsPaused()) {
 				return;
 			}
-			auto  timer = RE::BSTimer::GetSingleton();
-			float dt = timer ? timer->realTimeDelta : (1.0f / 60.0f);
-			Executor::Get().Tick(player, std::clamp(dt, 0.0f, 0.1f));
+			Executor::Get().UpdateMarkerScreen();
 		}
 
+		// Main::Update: all game logic. Starting idles from the camera update (as before) happens at a point of the
+		// frame where the AI often refuses them; Kaputt drives its killmoves from here.
+		struct MainUpdateHook
+		{
+			static void thunk(RE::Main* a_this, float a_arg)
+			{
+				func(a_this, a_arg);
+				auto player = RE::PlayerCharacter::GetSingleton();
+				auto ui = RE::UI::GetSingleton();
+				if (!player || !player->Is3DLoaded() || (ui && ui->GameIsPaused())) {
+					return;
+				}
+				static REL::Relocation<float*> deltaTime{ RELOCATION_ID(523661, 410200) };
+				Executor::Get().Tick(player, std::clamp(*deltaTime, 0.0f, 0.1f));
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+
+		// in a paired animation: the GetPairedAnimation condition (what Kaputt uses) or the synced graph variable
 		bool IsSynced(RE::Actor* a_actor)
 		{
+			if (!a_actor) {
+				return false;
+			}
+			static RE::TESConditionItem cond;
+			static std::once_flag       once;
+			std::call_once(once, [] {
+				cond.data.functionData.function = RE::FUNCTION_DATA::FunctionID::kGetPairedAnimation;
+				cond.data.comparisonValue.f = 0.0f;
+				cond.data.flags.opCode = RE::CONDITION_ITEM_DATA::OpCode::kNotEqualTo;
+				cond.data.object = RE::CONDITIONITEMOBJECT::kSelf;
+			});
+			RE::ConditionCheckParams params(a_actor, nullptr);
+			if (cond(params)) {
+				return true;
+			}
 			static const RE::BSFixedString kSynced("bIsSynced");
 			bool v = false;
-			return a_actor && a_actor->GetGraphVariableBool(kSynced, v) && v;
+			return a_actor->GetGraphVariableBool(kSynced, v) && v;
 		}
 
 		float HealthPct(RE::Actor* a_actor)
@@ -149,6 +181,12 @@ namespace ED
 
 	void Executor::InstallHooks()
 	{
+		{
+			REL::Relocation<std::uintptr_t> mainUpdate{ RELOCATION_ID(35551, 36544), REL::VariantOffset(0x11F, 0x160, 0x0) };
+			SKSE::AllocTrampoline(14);
+			MainUpdateHook::func = SKSE::GetTrampoline().write_call<5>(mainUpdate.address(), MainUpdateHook::thunk);
+			logger::info("Main update hook installed");
+		}
 		REL::Relocation<std::uintptr_t> target{ RELOCATION_ID(49852, 50784) };
 		MH_STATUS st = MH_Initialize();
 		if (st != MH_OK && st != MH_ERROR_ALREADY_INITIALIZED) {
@@ -429,7 +467,9 @@ namespace ED
 			}
 			float d = a->GetPosition().GetDistance(a_player->GetPosition());
 			float ang = std::abs(a_player->GetHeadingAngle(a->GetPosition(), true));
-			if (d <= best && ang <= s.executeCone) {
+			// on slopes and stairs the pair ends up floating or sunk into the ground
+			float dz = std::abs(a->GetPositionZ() - a_player->GetPositionZ());
+			if (d <= best && ang <= s.executeCone && dz <= 45.0f) {
 				best = d;
 				victim = a.get();
 			}
@@ -627,6 +667,17 @@ namespace ED
 		static const RE::BSFixedString kStaggerStop("staggerStop");
 		static const RE::BSFixedString kDefault("IdleForceDefaultState");
 		static const RE::BSFixedString kBlockStop("blockStop");
+		static const RE::BSFixedString kGetUpEnd("GetUpEnd");
+		// the attacker must be free as well (Kaputt stops both sides' attacks and staggers)
+		if (auto player = RE::PlayerCharacter::GetSingleton()) {
+			player->NotifyAnimationGraph(kAttackStop);
+			player->NotifyAnimationGraph(kStaggerStop);
+		}
+		if (auto st = a_victim->AsActorState();
+			st && (st->GetKnockState() == RE::KNOCK_STATE_ENUM::kGetUp || st->GetKnockState() == RE::KNOCK_STATE_ENUM::kQueued)) {
+			st->actorState1.knockState = RE::KNOCK_STATE_ENUM::kNormal;
+			a_victim->NotifyAnimationGraph(kGetUpEnd);
+		}
 		a_victim->NotifyAnimationGraph(kAttackStop);
 		a_victim->NotifyAnimationGraph(kStaggerStop);
 		a_victim->NotifyAnimationGraph(kBlockStop);
@@ -857,7 +908,6 @@ namespace ED
 		_clock += a_dt;
 		if (!s.enabled) {
 			_marked.clear();
-			UpdateMarkerScreen();
 			return;
 		}
 		_scanTimer -= a_dt;
@@ -875,6 +925,5 @@ namespace ED
 			StartTest(a_player, key);
 		}
 		UpdateAttempt(a_player, a_dt);
-		UpdateMarkerScreen();
 	}
 }

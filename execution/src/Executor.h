@@ -23,6 +23,7 @@ namespace ED
 		static void Notify(const char* a_msg);
 
 		void Tick(RE::PlayerCharacter* a_player, float a_dt);
+		void UpdateMarkerScreen();
 		void RequestExecute() { _executeRequested = true; }
 		void ForceNext(const std::string& a_key) { _forcedNext = a_key; }
 		void RequestTest(const std::string& a_key)
@@ -81,7 +82,7 @@ namespace ED
 		void        UpdateBleedout();
 		static void SetDowned(RE::Actor* a_actor, bool a_down);
 		bool        IsVictim(RE::Actor* a_actor);
-		void        UpdateMarkerScreen();
+
 		void        StartExecution(RE::PlayerCharacter* a_player);
 		void        StartTest(RE::PlayerCharacter* a_player, const std::string& a_key);
 		void        Begin(RE::Actor* a_victim, std::vector<Finisher*> a_cands, int a_wc, bool a_test);
