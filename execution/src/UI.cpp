@@ -244,7 +244,8 @@ namespace ED::UI
 				"(Unarmed/1H/2H/Ranged/Other) - after 2 failures with a weapon an animation is marked auto-off and no longer picked "
 				"for that weapon (Reset gives it another chance; Test still plays it). "
 				"'Chance' is how likely an animation is picked compared with the others that fit (100 = normal, 50 = half as often, "
-				"0 = never at random, only with Next). On and Chance are kept separately for each weapon type - pick one below. "
+				"0 = never at random, only with Next). Next = the next time you press the execute key on an enemy, this animation is "
+				"tried first (once). On and Chance are kept separately for each weapon type - pick one below. "
 				"Test plays the animation on the nearest character as soon as you close this menu.");
 
 			ImGuiMCP::SeparatorText("Presets");
@@ -285,6 +286,10 @@ namespace ED::UI
 			for (int w = 0; w < kWeaponClassCount; ++w) {
 				ImGuiMCP::SameLine();
 				ImGuiMCP::RadioButton(WeaponClassName(w), &g_weapon, w);
+			}
+			if (auto& next = Executor::Get().ForcedNext(); !next.empty()) {
+				ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.85f, 0.4f, 1.0f },
+					"Next execution (V) will use: %s  - click Queued again to cancel", next.c_str());
 			}
 			if (auto test = Executor::Get().PendingTest(); !test.empty()) {
 				ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.6f, 0.6f, 1.0f }, "Test queued: %s - close the menu", test.c_str());
@@ -339,8 +344,11 @@ namespace ED::UI
 						Executor::Get().RequestTest(f.key);
 					}
 					ImGuiMCP::SameLine();
-					if (ImGuiMCP::Button(Executor::Get().ForcedNext() == f.key ? "Queued" : "Next")) {
-						Executor::Get().ForceNext(f.key);
+					{
+						bool queued = Executor::Get().ForcedNext() == f.key;
+						if (ImGuiMCP::Button(queued ? "Queued###next" : "Next###next")) {
+							Executor::Get().ForceNext(queued ? std::string{} : f.key);  // click again to cancel
+						}
 					}
 					ImGuiMCP::SameLine();
 					if (ImGuiMCP::Button("Reset")) {
