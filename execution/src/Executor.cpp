@@ -660,6 +660,22 @@ namespace ED
 		return GraphBool(a_victim, kAtk) || GraphBool(a_victim, kStag) || GraphBool(a_victim, kRec) || GraphBool(a_victim, kBlk);
 	}
 
+	void Executor::FaceEachOther(RE::Actor* a_player, RE::Actor* a_victim, Category a_cat)
+	{
+		// Paired animations start from the attacker's current facing; the engine only pulls the victim into place.
+		// Turn the attacker straight at the victim, and the victim towards (front) or away from (back) the attacker.
+		auto  pp = a_player->GetPosition();
+		auto  vp = a_victim->GetPosition();
+		float toVictim = std::atan2(vp.x - pp.x, vp.y - pp.y);
+		a_player->SetHeading(toVictim);
+		bool  behind = a_cat == Category::kBack || a_cat == Category::kSneak;
+		float victimHeading = behind ? toVictim : toVictim + RE::NI_PI;
+		if (victimHeading > RE::NI_PI) {
+			victimHeading -= RE::NI_TWO_PI;
+		}
+		a_victim->SetHeading(victimHeading);
+	}
+
 	void Executor::PrepareVictim(RE::Actor* a_victim)
 	{
 		// a paired animation is only accepted while the victim's graph is free: cut their attack, stagger or idle
@@ -719,6 +735,7 @@ namespace ED
 					break;
 				}
 			}
+			FaceEachOther(a_player, victim.get(), f->GetCategory());
 			bool ok = false;
 			{
 				ConditionStrip strip(idle);
