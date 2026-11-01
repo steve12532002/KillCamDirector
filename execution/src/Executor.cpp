@@ -45,18 +45,6 @@ namespace ED
 			static inline REL::Relocation<decltype(thunk)> func;
 		};
 
-		struct AttackActionHook
-		{
-			static bool thunk(RE::TESActionData* a_action)
-			{
-				auto ctx = Executor::Get().BeforeAttack(a_action);
-				bool result = func(a_action);
-				Executor::Get().AfterAttack(ctx);
-				return result;
-			}
-			static inline REL::Relocation<decltype(thunk)> func;
-		};
-
 		struct HitHook
 		{
 			static void thunk(RE::Actor* a_victim, RE::HitData& a_hit)
@@ -224,10 +212,7 @@ namespace ED
 			SKSE::AllocTrampoline(64);
 			MainUpdateHook::func = SKSE::GetTrampoline().write_call<5>(mainUpdate.address(), MainUpdateHook::thunk);
 			logger::info("Main update hook installed");
-			// the attack action: where the game itself decides whether an attack becomes a killmove
-			REL::Relocation<std::uintptr_t> attackAction{ RELOCATION_ID(48139, 49170), REL::VariantOffset(0x4D7, 0x435, 0x0) };
-			AttackActionHook::func = SKSE::GetTrampoline().write_call<5>(attackAction.address(), AttackActionHook::thunk);
-			logger::info("Attack action hook installed");
+
 		}
 		REL::Relocation<std::uintptr_t> target{ RELOCATION_ID(49852, 50784) };
 		MH_STATUS st = MH_Initialize();
@@ -895,47 +880,31 @@ namespace ED
 		if (!player || _attempt.active || player->IsInKillMove() || IsSynced(player)) {
 			return;
 		}
+		if (_armCtx) {
+			_armedUntil = _clock + Settings::Get().armWindow;  // already armed: just extend
+			return;
+		}
 		auto victim = PickVictim(player);
 		if (!victim) {
 			Notify("\xE9\x99\x84\xE8\xBF\x91\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE8\x99\x95\xE6\xB1\xBA\xE7\x9A\x84\xE6\x95\xB5\xE4\xBA\xBA");  // 附近沒有可處決的敵人
 			return;
 		}
-		_armedVictim = victim->GetHandle();
-		_armedUntil = _clock + Settings::Get().armWindow;
-		logger::info("Armed on {} - waiting for an attack", victim->GetDisplayFullName());
-		Notify("\xE6\x94\xBB\xE6\x93\x8A\xE4\xBB\xA5\xE8\x99\x95\xE6\xB1\xBA");  // 攻擊以處決
+		if (ArmOn(player, victim, Settings::Get().armWindow)) {
+			Notify("\xE6\x94\xBB\xE6\x93\x8A\xE4\xBB\xA5\xE8\x99\x95\xE6\xB1\xBA");  // 攻擊以處決
+		}
 	}
 
-	std::shared_ptr<void> Executor::BeforeAttack(RE::TESActionData* a_action)
+	bool Executor::ArmOn(RE::PlayerCharacter* a_player, RE::Actor* a_victim, float a_window)
 	{
-		auto& s = Settings::Get();
-		auto  player = RE::PlayerCharacter::GetSingleton();
-		if (!s.enabled || !a_action || !player || a_action->source.get() != player || _attempt.active ||
-			player->IsInKillMove() || IsSynced(player)) {
-			return nullptr;
-		}
-		// armed with the execute key, or automatic on any marked enemy (with its chance)
-		RE::Actor* victim = nullptr;
-		if (_clock <= _armedUntil) {
-			auto v = _armedVictim.get();
-			victim = v ? v.get() : nullptr;
-		}
-		if (!victim && s.hitTrigger) {
-			std::uniform_real_distribution<float> roll(0.0f, 100.0f);
-			if (roll(_rng) < s.hitChance) {
-				victim = PickVictim(player);
-			}
-		}
-		if (!victim || victim->IsDead() || !IsExecutable(player, victim)) {
-			return nullptr;
-		}
+		// Prepared *before* the attack, the way VioLens works: the chosen finishers have their chance gates lifted
+		// and the victim is on 1 HP, so whatever attack the player starts next, the game's own killmove check
+		// (wherever it runs) sees a lethal blow and is allowed exactly these finishers.
 		std::vector<Finisher*> cands;
 		int                    wc = 0;
 		Category               cat = Category::kFront;
-		if (!BuildCandidates(player, victim, cands, wc, cat)) {
-			return nullptr;
+		if (!BuildCandidates(a_player, a_victim, cands, wc, cat)) {
+			return false;
 		}
-		// allow a few of them (the weighted random order decides), each with its chance gates lifted
 		auto ctx = std::make_shared<AttackContext>();
 		for (auto f : cands) {
 			if (std::any_of(f->idles.begin(), f->idles.end(), [](auto i) { return i->parentIdle != nullptr; })) {
@@ -946,9 +915,10 @@ namespace ED
 			}
 		}
 		if (ctx->chosen.empty()) {
-			return nullptr;
+			logger::info("Arm on {}: none of the {} candidates is in the idle tree", a_victim->GetDisplayFullName(), cands.size());
+			return false;
 		}
-		ctx->victim = victim->GetHandle();
+		ctx->victim = a_victim->GetHandle();
 		ctx->wc = wc;
 		ctx->strip = std::make_unique<RandomGateStrip>();
 		for (auto f : ctx->chosen) {
@@ -958,52 +928,87 @@ namespace ED
 				}
 			}
 		}
-		PrepareVictim(victim);
-		FaceEachOther(player, victim, ctx->chosen.front()->GetCategory());
-		// the game only turns an attack into a killmove when it would kill
-		if (auto avo = victim->AsActorValueOwner()) {
+		if (auto avo = a_victim->AsActorValueOwner()) {
 			ctx->hp = avo->GetActorValue(RE::ActorValue::kHealth);
 			if (ctx->hp > 1.0f) {
 				avo->DamageActorValue(RE::ActorValue::kHealth, ctx->hp - 1.0f);
 			}
 		}
-		return ctx;
-	}
-
-	void Executor::AfterAttack(const std::shared_ptr<void>& a_ctx)
-	{
-		if (!a_ctx) {
-			return;
-		}
-		auto ctx = std::static_pointer_cast<AttackContext>(a_ctx);
-		ctx->strip.reset();  // conditions back as they were
-		auto player = RE::PlayerCharacter::GetSingleton();
-		auto victim = ctx->victim.get();
 		std::string names;
 		for (auto f : ctx->chosen) {
 			names += f->event + " ";
 		}
-		bool started = player && (player->IsInKillMove() || IsSynced(player));
-		if (!started) {
-			// no killmove this time: the attack goes on as a normal blow, with their health back
-			if (victim && ctx->hp > 1.0f) {
-				if (auto avo = victim->AsActorValueOwner()) {
-					avo->RestoreActorValue(RE::ActorValue::kHealth, ctx->hp - 1.0f);
-				}
-			}
-			logger::info("Attack on {}: the game did not start a killmove (allowed: {})", victim ? victim->GetDisplayFullName() : "?", names);
+		logger::info("Armed on {} ({}, {} weapon) - allowed: {}", a_victim->GetDisplayFullName(), CategoryName(cat), WeaponClassName(wc), names);
+		_armCtx = ctx;
+		_armedUntil = _clock + a_window;
+		return true;
+	}
+
+	void Executor::Disarm(bool a_started)
+	{
+		if (!_armCtx) {
 			return;
 		}
-		logger::info("Attack on {}: game killmove started (allowed: {})", victim ? victim->GetDisplayFullName() : "?", names);
+		auto ctx = std::static_pointer_cast<AttackContext>(_armCtx);
+		_armCtx.reset();
 		_armedUntil = -1.0f;
-		_attempt = Attempt{};
-		_attempt.active = true;
-		_attempt.victim = ctx->victim;
-		_attempt.weaponClass = ctx->wc;
-		_attempt.prepped = true;
-		_attempt.engine = true;
-		_attempt.engineHp = 0.0f;  // the killmove kills them - nothing to give back
-		_attempt.current = ctx->chosen.front();
+		auto victim = ctx->victim.get();
+		ctx->strip.reset();  // conditions back as they were
+		if (a_started) {
+			logger::info("  game killmove started");
+			_attempt = Attempt{};
+			_attempt.active = true;
+			_attempt.victim = ctx->victim;
+			_attempt.weaponClass = ctx->wc;
+			_attempt.prepped = true;
+			_attempt.engine = true;
+			_attempt.current = ctx->chosen.front();  // best guess: the game picked one of these
+			return;
+		}
+		if (victim && !victim->IsDead() && ctx->hp > 1.0f) {
+			if (auto avo = victim->AsActorValueOwner()) {
+				avo->RestoreActorValue(RE::ActorValue::kHealth, ctx->hp - 1.0f);
+			}
+		}
+		logger::info("  disarmed without a killmove");
+	}
+
+	void Executor::UpdateArm(RE::PlayerCharacter* a_player)
+	{
+		auto& s = Settings::Get();
+		// automatic mode: arm on the marked enemy in front of you (one roll per enemy)
+		if (!_armCtx && s.hitTrigger && !_attempt.active && !a_player->IsInKillMove()) {
+			if (auto victim = PickVictim(a_player)) {
+				auto it = _marked.find(victim->GetFormID());
+				if (it != _marked.end() && !it->second.autoRolled) {
+					it->second.autoRolled = true;
+					std::uniform_real_distribution<float> roll(0.0f, 100.0f);
+					if (roll(_rng) < s.hitChance) {
+						ArmOn(a_player, victim, 1.0f);
+					}
+				}
+			}
+		}
+		if (!_armCtx) {
+			return;
+		}
+		auto ctx = std::static_pointer_cast<AttackContext>(_armCtx);
+		auto victim = ctx->victim.get();
+		if (a_player->IsInKillMove() || IsSynced(a_player)) {
+			Disarm(true);
+			return;
+		}
+		if (!victim || victim->IsDead()) {
+			Disarm(false);
+			return;
+		}
+		// automatic mode stays armed while that enemy stays in front of you
+		if (s.hitTrigger && PickVictim(a_player) == victim.get()) {
+			_armedUntil = std::max(_armedUntil, _clock + 0.5f);
+		}
+		if (_clock > _armedUntil) {
+			Disarm(false);
+		}
 	}
 
 	void Executor::FaceEachOther(RE::Actor* a_player, RE::Actor* a_victim, Category a_cat)
@@ -1395,6 +1400,7 @@ namespace ED
 			StartTest(a_player, key);
 		}
 		UpdateAttempt(a_player, a_dt);
+		UpdateArm(a_player);
 
 		// watchdog: a kill-move flag left on the player with no pair running blocks every action
 		if (!_attempt.active && a_player->IsInKillMove() && !IsSynced(a_player)) {

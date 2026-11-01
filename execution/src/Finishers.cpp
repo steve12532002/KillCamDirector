@@ -335,14 +335,34 @@ namespace ED
 			}
 			return false;
 		};
-		RE::TESIdleForm* root = nullptr;
-		int              guard = 0;
-		for (auto n = vanilla.front()->parentIdle; n && guard < 32; n = n->parentIdle, ++guard) {
-			if (std::all_of(vanilla.begin(), vanilla.end(), [&](auto leaf) { return isAncestor(n, leaf); })) {
-				root = n;
-				break;
+		// The vanilla killmoves hang under a few roots (front / sneak / bleedout ...). Count how many vanilla
+		// killmoves each ancestor covers and take the node covering the most - the deepest one on a tie.
+		std::unordered_map<RE::TESIdleForm*, int> cover;
+		std::unordered_map<RE::TESIdleForm*, int> depth;
+		for (auto leaf : vanilla) {
+			std::vector<RE::TESIdleForm*> chain;
+			int guard = 0;
+			for (auto n = leaf->parentIdle; n && guard < 32; n = n->parentIdle, ++guard) {
+				chain.push_back(n);
+			}
+			for (std::size_t i = 0; i < chain.size(); ++i) {
+				cover[chain[i]]++;
+				depth[chain[i]] = static_cast<int>(chain.size() - i);  // distance from the top
 			}
 		}
+		RE::TESIdleForm* root = nullptr;
+		for (auto& [node, n] : cover) {
+			if (!root || n > cover[root] || (n == cover[root] && depth[node] > depth[root])) {
+				root = node;
+			}
+		}
+		for (auto& [node, n] : cover) {
+			if (n * 4 >= static_cast<int>(vanilla.size())) {
+				const char* id = node->GetFormEditorID();
+				logger::info("  killmove tree node {} ({:08X}) covers {} of {} vanilla killmoves", id ? id : "?", node->GetFormID(), n, vanilla.size());
+			}
+		}
+		(void)isAncestor;
 		if (!root) {
 			logger::warn("Could not find the killmove root idle");
 			return;

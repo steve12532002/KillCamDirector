@@ -39,9 +39,7 @@ namespace ED
 			}
 		}
 		void Arm();
-		std::shared_ptr<void> BeforeAttack(RE::TESActionData* a_action);
-		void                  AfterAttack(const std::shared_ptr<void>& a_ctx);
-		bool                  IsArmed() const { return _clock <= _armedUntil; }
+		bool IsArmed() const { return _armCtx != nullptr; }
 		void OnPlayerHit(RE::Actor* a_victim, RE::HitData& a_hit, bool a_after);
 		void ForceNext(const std::string& a_key) { _forcedNext = a_key; }
 		void RequestTest(const std::string& a_key)
@@ -72,6 +70,7 @@ namespace ED
 			float           lastStagger{ -100 };
 			bool            downed{ false };  // we put them in bleedout
 			bool            bleedDone{ false };
+			bool            autoRolled{ false };
 		};
 
 		struct Attempt
@@ -110,6 +109,9 @@ namespace ED
 		void        Begin(RE::Actor* a_victim, std::vector<Finisher*> a_cands, int a_wc, bool a_test);
 		void        PrepareVictim(RE::Actor* a_victim);
 		RE::Actor*  PickVictim(RE::PlayerCharacter* a_player);
+		bool        ArmOn(RE::PlayerCharacter* a_player, RE::Actor* a_victim, float a_window);
+		void        Disarm(bool a_started);
+		void        UpdateArm(RE::PlayerCharacter* a_player);
 		bool        TryEngineKillmove(RE::PlayerCharacter* a_player, RE::Actor* a_victim, const std::vector<Finisher*>& a_cands, int a_wc);
 		static void FaceEachOther(RE::Actor* a_player, RE::Actor* a_victim, Category a_cat);
 		static bool VictimBusy(RE::Actor* a_victim);
@@ -137,6 +139,7 @@ namespace ED
 		float                                       _stuckTimer{ 0 };
 		RE::ActorHandle                             _armedVictim;
 		float                                       _armedUntil{ -1.0f };
+		std::shared_ptr<void>                       _armCtx;
 		std::mt19937                                _rng{ std::random_device{}() };
 	};
 }
