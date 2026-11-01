@@ -230,6 +230,9 @@ namespace ED::UI
 				changed |= ImGuiMCP::SliderFloat("Marker offset Y", &s.markerOffsetY, -200.0f, 200.0f, "%.0f px");
 				changed |= ImGuiMCP::SliderFloat("Marker height above head", &s.markerHeight, 0.0f, 80.0f, "%.0f units");
 			}
+			if (ImGuiMCP::Button("Unstuck: reset my character's animation state")) {
+				Executor::Get().Unstuck();
+			}
 			ImGuiMCP::Text("Executable right now: %d", static_cast<int>(Executor::Get().MarkedCount()));
 			if (!Executor::Get().LastResult().empty()) {
 				ImGuiMCP::Text("Last execution: %s", Executor::Get().LastResult().c_str());

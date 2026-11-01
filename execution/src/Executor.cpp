@@ -812,8 +812,7 @@ namespace ED
 				action->target = RE::NiPointer<RE::TESObjectREFR>(a_victim);
 				action->action = attack;
 				action->Process();
-				action->~TESActionData();
-				RE::free(action);
+				// not freed here: the game may still hold on to it while the attack runs
 			}
 			started = a_player->IsInKillMove() || IsSynced(a_player);
 		}
@@ -947,14 +946,6 @@ namespace ED
 				_attempt.tries = 0;
 			}
 			if (++_attempt.refusals < 3) {
-				// The player's behavior graph has no way into the paired state from where it is now (combat
-				// stances and attack states added by combat mods often lack it). Drop both graphs back to the
-				// default state, which always has that transition, then ask again with the same animation.
-				static const RE::BSFixedString kDefault("IdleForceDefaultState");
-				a_player->NotifyAnimationGraph(kDefault);
-				if (_attempt.refusals == 2) {
-					victim->NotifyAnimationGraph(kDefault);
-				}
 				_attempt.prepped = false;
 				_attempt.prepTimer = -0.12f;
 				return true;
@@ -1082,7 +1073,11 @@ namespace ED
 				_attempt.timer = 0;
 				return;
 			}
-			// nothing started at all: safe to try another one right away
+			// nothing started at all (the idle was accepted but never ran): this animation does not work here
+			if (_attempt.current) {
+				_attempt.current->fails[_attempt.weaponClass]++;
+			}
+			// safe to try another one right away
 			ReleasePair(a_player, victim.get(), false);
 			PrepareVictim(victim.get());
 			if (_attempt.test || !TryNext(a_player)) {
@@ -1171,6 +1166,24 @@ namespace ED
 		_hitVictim = a_victim->GetHandle();
 	}
 
+	void Executor::Unstuck()
+	{
+		auto player = RE::PlayerCharacter::GetSingleton();
+		if (!player) {
+			return;
+		}
+		static const RE::BSFixedString kPairEnd("PairEnd");
+		static const RE::BSFixedString kDefault("IdleForceDefaultState");
+		player->NotifyAnimationGraph(kPairEnd);
+		player->NotifyAnimationGraph(kDefault);
+		ClearKillMove(player);
+		if (auto v = _attempt.victim.get()) {
+			ClearKillMove(v.get());
+		}
+		_attempt = Attempt{};
+		logger::info("Unstuck: player animation state reset");
+	}
+
 	void Executor::Finish(bool a_ok, const char* a_msg)
 	{
 		_attempt.active = false;
@@ -1206,5 +1219,17 @@ namespace ED
 			StartTest(a_player, key);
 		}
 		UpdateAttempt(a_player, a_dt);
+
+		// watchdog: a kill-move flag left on the player with no pair running blocks every action
+		if (!_attempt.active && a_player->IsInKillMove() && !IsSynced(a_player)) {
+			_stuckTimer += a_dt;
+			if (_stuckTimer > 3.0f) {
+				logger::info("Player kill-move flag stuck without a pair - clearing it");
+				ClearKillMove(a_player);
+				_stuckTimer = 0;
+			}
+		} else {
+			_stuckTimer = 0;
+		}
 	}
 }

@@ -24,6 +24,7 @@ namespace ED
 
 		void Tick(RE::PlayerCharacter* a_player, float a_dt);
 		void UpdateMarkerScreen();
+		void Unstuck();
 		void RequestExecute() { _executeRequested = true; }
 		// called from the input sink: execute right there, like Kaputt's execution key
 		void ExecuteNow()
@@ -122,6 +123,7 @@ namespace ED
 		std::string                                 _lastResult;
 		std::deque<Finisher*>                       _recent;
 		RE::ActorHandle                             _hitVictim;
+		float                                       _stuckTimer{ 0 };
 		std::mt19937                                _rng{ std::random_device{}() };
 	};
 }
