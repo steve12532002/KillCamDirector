@@ -267,6 +267,117 @@ namespace ED
 		LoadUser();
 	}
 
+	namespace
+	{
+		// NiFormArray members are private in CommonLib; same layout as NiTLargeArray
+		struct RawFormArray
+		{
+			void*          vtbl;
+			RE::TESForm**  data;
+			std::uint32_t  capacity;
+			std::uint32_t  freeIdx;
+			std::uint32_t  size;
+			std::uint32_t  growBy;
+		};
+		static_assert(sizeof(RawFormArray) == sizeof(RE::NiFormArray));
+
+		bool InsertChildFront(RE::TESIdleForm* a_parent, RE::TESIdleForm* a_child)
+		{
+			if (!a_parent->childIdles) {
+				return false;
+			}
+			auto raw = reinterpret_cast<RawFormArray*>(a_parent->childIdles);
+			std::uint32_t n = raw->size;
+			auto newData = static_cast<RE::TESForm**>(RE::NiMalloc(sizeof(RE::TESForm*) * (n + 1)));
+			if (!newData) {
+				return false;
+			}
+			newData[0] = a_child;
+			for (std::uint32_t i = 0; i < n; ++i) {
+				newData[i + 1] = raw->data[i];
+			}
+			// the old buffer is left alone (never freed) in case something is iterating it right now
+			raw->data = newData;
+			raw->capacity = n + 1;
+			raw->size = n + 1;
+			raw->freeIdx = n + 1;
+			return true;
+		}
+	}
+
+	void Catalog::AttachOrphans()
+	{
+		// Stand-alone killmove idles (Low-blow, Kaputt-format packs) are not in the idle tree, so the game's own
+		// killmove system can never pick them. Hang them under the vanilla killmove root, like VioLens' patches do,
+		// behind a condition that is never true - it is only lifted while we let the game pick that finisher.
+		std::vector<RE::TESIdleForm*> vanilla;
+		for (auto& f : _list) {
+			if (!f.killmove || f.creature) {
+				continue;
+			}
+			for (auto idle : f.idles) {
+				auto file = idle->GetFile(0);
+				if (idle->parentIdle && file && std::string_view(file->GetFilename()) == "Skyrim.esm") {
+					vanilla.push_back(idle);
+				}
+			}
+		}
+		if (vanilla.empty()) {
+			logger::warn("No vanilla killmove idles found - stand-alone finishers stay out of the idle tree");
+			return;
+		}
+		auto isAncestor = [](RE::TESIdleForm* a_node, RE::TESIdleForm* a_leaf) {
+			int guard = 0;
+			for (auto i = a_leaf; i && guard < 32; i = i->parentIdle, ++guard) {
+				if (i == a_node) {
+					return true;
+				}
+			}
+			return false;
+		};
+		RE::TESIdleForm* root = nullptr;
+		int              guard = 0;
+		for (auto n = vanilla.front()->parentIdle; n && guard < 32; n = n->parentIdle, ++guard) {
+			if (std::all_of(vanilla.begin(), vanilla.end(), [&](auto leaf) { return isAncestor(n, leaf); })) {
+				root = n;
+				break;
+			}
+		}
+		if (!root) {
+			logger::warn("Could not find the killmove root idle");
+			return;
+		}
+		const char* rootId = root->GetFormEditorID();
+		logger::info("Killmove root idle: {} ({:08X})", rootId ? rootId : "?", root->GetFormID());
+
+		auto playerBase = RE::TESForm::LookupByID(0x7);
+		int  count = 0;
+		for (auto& f : _list) {
+			if (!f.killmove || f.idles.empty() ||
+				std::any_of(f.idles.begin(), f.idles.end(), [](auto i) { return i->parentIdle != nullptr; })) {
+				continue;
+			}
+			for (auto idle : f.idles) {
+				auto item = new RE::TESConditionItem();
+				item->data.functionData.function = RE::FUNCTION_DATA::FunctionID::kGetIsID;
+				item->data.functionData.params[0] = playerBase;
+				item->data.functionData.params[1] = nullptr;
+				item->data.object = RE::CONDITIONITEMOBJECT::kSelf;
+				item->data.flags.opCode = RE::CONDITION_ITEM_DATA::OpCode::kEqualTo;
+				item->data.flags.isOR = false;
+				item->data.comparisonValue.f = 2.0f;  // never true
+				item->next = idle->conditions.head;
+				idle->conditions.head = item;
+				if (InsertChildFront(root, idle)) {
+					idle->parentIdle = root;
+					++count;
+				}
+			}
+			f.chain = ChainOf(f.idles.front());
+		}
+		logger::info("Attached {} stand-alone finisher idles to the killmove tree", count);
+	}
+
 	void Catalog::BlockPlayerRandom()
 	{
 		if (_blocked || !Settings::Get().blockRandomPlayerKillmoves) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Finishers.h"
+#include "Settings.h"
 
 namespace ED
 {
@@ -29,10 +30,18 @@ namespace ED
 		// called from the input sink: execute right there, like Kaputt's execution key
 		void ExecuteNow()
 		{
-			if (auto player = RE::PlayerCharacter::GetSingleton()) {
-				StartExecution(player);
+			if (Settings::Get().directPlay) {
+				if (auto player = RE::PlayerCharacter::GetSingleton()) {
+					StartExecution(player);
+				}
+			} else {
+				Arm();
 			}
 		}
+		void Arm();
+		std::shared_ptr<void> BeforeAttack(RE::TESActionData* a_action);
+		void                  AfterAttack(const std::shared_ptr<void>& a_ctx);
+		bool                  IsArmed() const { return _clock <= _armedUntil; }
 		void OnPlayerHit(RE::Actor* a_victim, RE::HitData& a_hit, bool a_after);
 		void ForceNext(const std::string& a_key) { _forcedNext = a_key; }
 		void RequestTest(const std::string& a_key)
@@ -96,9 +105,11 @@ namespace ED
 		bool        IsVictim(RE::Actor* a_actor);
 
 		void        StartExecution(RE::PlayerCharacter* a_player, RE::Actor* a_victim = nullptr);
+		bool        BuildCandidates(RE::PlayerCharacter* a_player, RE::Actor* a_victim, std::vector<Finisher*>& a_out, int& a_wc, Category& a_cat);
 		void        StartTest(RE::PlayerCharacter* a_player, const std::string& a_key);
 		void        Begin(RE::Actor* a_victim, std::vector<Finisher*> a_cands, int a_wc, bool a_test);
 		void        PrepareVictim(RE::Actor* a_victim);
+		RE::Actor*  PickVictim(RE::PlayerCharacter* a_player);
 		bool        TryEngineKillmove(RE::PlayerCharacter* a_player, RE::Actor* a_victim, const std::vector<Finisher*>& a_cands, int a_wc);
 		static void FaceEachOther(RE::Actor* a_player, RE::Actor* a_victim, Category a_cat);
 		static bool VictimBusy(RE::Actor* a_victim);
@@ -124,6 +135,8 @@ namespace ED
 		std::deque<Finisher*>                       _recent;
 		RE::ActorHandle                             _hitVictim;
 		float                                       _stuckTimer{ 0 };
+		RE::ActorHandle                             _armedVictim;
+		float                                       _armedUntil{ -1.0f };
 		std::mt19937                                _rng{ std::random_device{}() };
 	};
 }

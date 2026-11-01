@@ -29,6 +29,7 @@ namespace
 		if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
 			ED::Catalog::Get().Build();
 			ED::Catalog::Get().BlockPlayerRandom();
+			ED::Catalog::Get().AttachOrphans();
 			ED::Input::Install();
 			ED::UI::Register();
 		}

@@ -45,6 +45,18 @@ namespace ED
 			static inline REL::Relocation<decltype(thunk)> func;
 		};
 
+		struct AttackActionHook
+		{
+			static bool thunk(RE::TESActionData* a_action)
+			{
+				auto ctx = Executor::Get().BeforeAttack(a_action);
+				bool result = func(a_action);
+				Executor::Get().AfterAttack(ctx);
+				return result;
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+
 		struct HitHook
 		{
 			static void thunk(RE::Actor* a_victim, RE::HitData& a_hit)
@@ -212,10 +224,10 @@ namespace ED
 			SKSE::AllocTrampoline(64);
 			MainUpdateHook::func = SKSE::GetTrampoline().write_call<5>(mainUpdate.address(), MainUpdateHook::thunk);
 			logger::info("Main update hook installed");
-			// hit processing (Kaputt's post-hit trigger uses the same spot)
-			REL::Relocation<std::uintptr_t> processHit{ RELOCATION_ID(37673, 38627), REL::VariantOffset(0x3C0, 0x4A8, 0x0) };
-			HitHook::func = SKSE::GetTrampoline().write_call<5>(processHit.address(), HitHook::thunk);
-			logger::info("Hit hook installed");
+			// the attack action: where the game itself decides whether an attack becomes a killmove
+			REL::Relocation<std::uintptr_t> attackAction{ RELOCATION_ID(48139, 49170), REL::VariantOffset(0x4D7, 0x435, 0x0) };
+			AttackActionHook::func = SKSE::GetTrampoline().write_call<5>(attackAction.address(), AttackActionHook::thunk);
+			logger::info("Attack action hook installed");
 		}
 		REL::Relocation<std::uintptr_t> target{ RELOCATION_ID(49852, 50784) };
 		MH_STATUS st = MH_Initialize();
@@ -481,39 +493,11 @@ namespace ED
 		return ang > 110.0f ? Category::kBack : Category::kFront;
 	}
 
-	void Executor::StartExecution(RE::PlayerCharacter* a_player, RE::Actor* a_victim)
+	bool Executor::BuildCandidates(RE::PlayerCharacter* a_player, RE::Actor* victim, std::vector<Finisher*>& a_out, int& wc, Category& cat)
 	{
 		auto& s = Settings::Get();
-		if (_attempt.active || a_player->IsInKillMove() || IsSynced(a_player)) {
-			return;
-		}
-		// nearest marked enemy in front of you and within reach (or the one just hit)
-		RE::Actor* victim = a_victim;
-		float      best = s.executeRange;
-		for (auto& [id, m] : _marked) {
-			if (victim) {
-				break;
-			}
-			auto a = m.handle.get();
-			if (!a) {
-				continue;
-			}
-			float d = a->GetPosition().GetDistance(a_player->GetPosition());
-			float ang = std::abs(a_player->GetHeadingAngle(a->GetPosition(), true));
-			// on slopes and stairs the pair ends up floating or sunk into the ground
-			float dz = std::abs(a->GetPositionZ() - a_player->GetPositionZ());
-			if (d <= best && ang <= s.executeCone && dz <= 45.0f) {
-				best = d;
-				victim = a.get();
-			}
-		}
-		if (!victim) {
-			Notify("\xE9\x99\x84\xE8\xBF\x91\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE8\x99\x95\xE6\xB1\xBA\xE7\x9A\x84\xE6\x95\xB5\xE4\xBA\xBA");  // 附近沒有可處決的敵人
-			return;
-		}
-
-		const Category cat = CategoryFor(a_player, victim);
-		const int      wc = WeaponClassOf(a_player);
+		cat = CategoryFor(a_player, victim);
+		wc = WeaponClassOf(a_player);
 		const bool     female = a_player->GetActorBase() && a_player->GetActorBase()->GetSex() == RE::SEX::kFemale;
 		// a person: ActorTypeNPC and not one of the special races that have their own finishers
 		const std::string victimRace = RaceOf(victim);
@@ -558,7 +542,7 @@ namespace ED
 		if (cands.empty() && cat != Category::kFront) cands = collect(Category::kFront);
 		if (cands.empty()) {
 			Notify("\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE7\x94\xA8\xE7\x9A\x84\xE7\xB5\x82\xE7\xB5\x90\xE6\x8A\x80");  // 沒有可用的終結技
-			return;
+			return false;
 		}
 		// Race checks are hard: an animation made for another race never pairs (the victim's graph ignores it).
 		// Other idle tree conditions (weapon, angle...) are only a preference, since some of them never pass
@@ -600,7 +584,7 @@ namespace ED
 			cands = !valid.empty() ? std::move(valid) : std::move(raceOk);
 			if (cands.empty()) {
 				Notify("\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE7\x94\xA8\xE7\x9A\x84\xE7\xB5\x82\xE7\xB5\x90\xE6\x8A\x80");  // 沒有可用的終結技
-				return;
+				return false;
 			}
 		}
 		if (s.preferWeaponMatch) {
@@ -651,6 +635,47 @@ namespace ED
 			_forcedNext.clear();
 		}
 
+		a_out = std::move(cands);
+		return !a_out.empty();
+	}
+
+	void Executor::StartExecution(RE::PlayerCharacter* a_player, RE::Actor* a_victim)
+	{
+		auto& s = Settings::Get();
+		if (_attempt.active || a_player->IsInKillMove() || IsSynced(a_player)) {
+			return;
+		}
+		// nearest marked enemy in front of you and within reach (or the one just hit)
+		RE::Actor* victim = a_victim;
+		float      best = s.executeRange;
+		for (auto& [id, m] : _marked) {
+			if (victim) {
+				break;
+			}
+			auto a = m.handle.get();
+			if (!a) {
+				continue;
+			}
+			float d = a->GetPosition().GetDistance(a_player->GetPosition());
+			float ang = std::abs(a_player->GetHeadingAngle(a->GetPosition(), true));
+			// on slopes and stairs the pair ends up floating or sunk into the ground
+			float dz = std::abs(a->GetPositionZ() - a_player->GetPositionZ());
+			if (d <= best && ang <= s.executeCone && dz <= 45.0f) {
+				best = d;
+				victim = a.get();
+			}
+		}
+		if (!victim) {
+			Notify("\xE9\x99\x84\xE8\xBF\x91\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE8\x99\x95\xE6\xB1\xBA\xE7\x9A\x84\xE6\x95\xB5\xE4\xBA\xBA");  // 附近沒有可處決的敵人
+			return;
+		}
+
+		std::vector<Finisher*> cands;
+		int                    wc = 0;
+		Category               cat = Category::kFront;
+		if (!BuildCandidates(a_player, victim, cands, wc, cat)) {
+			return;
+		}
 		logger::info("Execute {} ({}, {} weapon): {} candidates", victim->GetDisplayFullName(), CategoryName(cat), WeaponClassName(wc), cands.size());
 		if (s.engineKillmoves && TryEngineKillmove(a_player, victim, cands, wc)) {
 			return;
@@ -683,7 +708,7 @@ namespace ED
 			});
 		}
 		if (!victim) {
-			Notify("æ¸¬è©¦ï¼éè¿æ²æç®æ¨");  // 測試：附近沒有目標
+			Notify("\xE6\xB8\xAC\xE8\xA9\xA6\xEF\xBC\x9A\xE9\x99\x84\xE8\xBF\x91\xE6\xB2\x92\xE6\x9C\x89\xE7\x9B\xAE\xE6\xA8\x99");  // 測試：附近沒有目標
 			return;
 		}
 		logger::info("Test {} on {}", f->event, victim->GetDisplayFullName());
@@ -750,6 +775,15 @@ namespace ED
 			}
 			std::vector<std::pair<RE::TESIdleForm*, RE::TESConditionItem*>>     _heads;
 			std::vector<std::pair<RE::TESConditionItem*, RE::TESConditionItem*>> _nexts;
+		};
+
+		struct AttackContext
+		{
+			RE::ActorHandle                  victim;
+			std::vector<Finisher*>           chosen;
+			std::unique_ptr<RandomGateStrip> strip;
+			float                            hp{ 0 };
+			int                              wc{ 0 };
 		};
 	}
 
@@ -832,6 +866,144 @@ namespace ED
 		_attempt.candidates = a_cands;
 		_attempt.current = chosen.front();  // best guess; the game picked one of these
 		return true;
+	}
+
+	RE::Actor* Executor::PickVictim(RE::PlayerCharacter* a_player)
+	{
+		auto&      s = Settings::Get();
+		RE::Actor* victim = nullptr;
+		float      best = s.executeRange;
+		for (auto& [id, m] : _marked) {
+			auto a = m.handle.get();
+			if (!a || a->IsDead()) {
+				continue;
+			}
+			float d = a->GetPosition().GetDistance(a_player->GetPosition());
+			float ang = std::abs(a_player->GetHeadingAngle(a->GetPosition(), true));
+			float dz = std::abs(a->GetPositionZ() - a_player->GetPositionZ());
+			if (d <= best && ang <= s.executeCone && dz <= 45.0f) {
+				best = d;
+				victim = a.get();
+			}
+		}
+		return victim;
+	}
+
+	void Executor::Arm()
+	{
+		auto player = RE::PlayerCharacter::GetSingleton();
+		if (!player || _attempt.active || player->IsInKillMove() || IsSynced(player)) {
+			return;
+		}
+		auto victim = PickVictim(player);
+		if (!victim) {
+			Notify("\xE9\x99\x84\xE8\xBF\x91\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE8\x99\x95\xE6\xB1\xBA\xE7\x9A\x84\xE6\x95\xB5\xE4\xBA\xBA");  // 附近沒有可處決的敵人
+			return;
+		}
+		_armedVictim = victim->GetHandle();
+		_armedUntil = _clock + Settings::Get().armWindow;
+		logger::info("Armed on {} - waiting for an attack", victim->GetDisplayFullName());
+		Notify("\xE6\x94\xBB\xE6\x93\x8A\xE4\xBB\xA5\xE8\x99\x95\xE6\xB1\xBA");  // 攻擊以處決
+	}
+
+	std::shared_ptr<void> Executor::BeforeAttack(RE::TESActionData* a_action)
+	{
+		auto& s = Settings::Get();
+		auto  player = RE::PlayerCharacter::GetSingleton();
+		if (!s.enabled || !a_action || !player || a_action->source.get() != player || _attempt.active ||
+			player->IsInKillMove() || IsSynced(player)) {
+			return nullptr;
+		}
+		// armed with the execute key, or automatic on any marked enemy (with its chance)
+		RE::Actor* victim = nullptr;
+		if (_clock <= _armedUntil) {
+			auto v = _armedVictim.get();
+			victim = v ? v.get() : nullptr;
+		}
+		if (!victim && s.hitTrigger) {
+			std::uniform_real_distribution<float> roll(0.0f, 100.0f);
+			if (roll(_rng) < s.hitChance) {
+				victim = PickVictim(player);
+			}
+		}
+		if (!victim || victim->IsDead() || !IsExecutable(player, victim)) {
+			return nullptr;
+		}
+		std::vector<Finisher*> cands;
+		int                    wc = 0;
+		Category               cat = Category::kFront;
+		if (!BuildCandidates(player, victim, cands, wc, cat)) {
+			return nullptr;
+		}
+		// allow a few of them (the weighted random order decides), each with its chance gates lifted
+		auto ctx = std::make_shared<AttackContext>();
+		for (auto f : cands) {
+			if (std::any_of(f->idles.begin(), f->idles.end(), [](auto i) { return i->parentIdle != nullptr; })) {
+				ctx->chosen.push_back(f);
+			}
+			if (ctx->chosen.size() >= 4) {
+				break;
+			}
+		}
+		if (ctx->chosen.empty()) {
+			return nullptr;
+		}
+		ctx->victim = victim->GetHandle();
+		ctx->wc = wc;
+		ctx->strip = std::make_unique<RandomGateStrip>();
+		for (auto f : ctx->chosen) {
+			for (auto idle : f->idles) {
+				if (idle->parentIdle) {
+					ctx->strip->Add(idle);
+				}
+			}
+		}
+		PrepareVictim(victim);
+		FaceEachOther(player, victim, ctx->chosen.front()->GetCategory());
+		// the game only turns an attack into a killmove when it would kill
+		if (auto avo = victim->AsActorValueOwner()) {
+			ctx->hp = avo->GetActorValue(RE::ActorValue::kHealth);
+			if (ctx->hp > 1.0f) {
+				avo->DamageActorValue(RE::ActorValue::kHealth, ctx->hp - 1.0f);
+			}
+		}
+		return ctx;
+	}
+
+	void Executor::AfterAttack(const std::shared_ptr<void>& a_ctx)
+	{
+		if (!a_ctx) {
+			return;
+		}
+		auto ctx = std::static_pointer_cast<AttackContext>(a_ctx);
+		ctx->strip.reset();  // conditions back as they were
+		auto player = RE::PlayerCharacter::GetSingleton();
+		auto victim = ctx->victim.get();
+		std::string names;
+		for (auto f : ctx->chosen) {
+			names += f->event + " ";
+		}
+		bool started = player && (player->IsInKillMove() || IsSynced(player));
+		if (!started) {
+			// no killmove this time: the attack goes on as a normal blow, with their health back
+			if (victim && ctx->hp > 1.0f) {
+				if (auto avo = victim->AsActorValueOwner()) {
+					avo->RestoreActorValue(RE::ActorValue::kHealth, ctx->hp - 1.0f);
+				}
+			}
+			logger::info("Attack on {}: the game did not start a killmove (allowed: {})", victim ? victim->GetDisplayFullName() : "?", names);
+			return;
+		}
+		logger::info("Attack on {}: game killmove started (allowed: {})", victim ? victim->GetDisplayFullName() : "?", names);
+		_armedUntil = -1.0f;
+		_attempt = Attempt{};
+		_attempt.active = true;
+		_attempt.victim = ctx->victim;
+		_attempt.weaponClass = ctx->wc;
+		_attempt.prepped = true;
+		_attempt.engine = true;
+		_attempt.engineHp = 0.0f;  // the killmove kills them - nothing to give back
+		_attempt.current = ctx->chosen.front();
 	}
 
 	void Executor::FaceEachOther(RE::Actor* a_player, RE::Actor* a_victim, Category a_cat)
@@ -980,6 +1152,10 @@ namespace ED
 				return;
 			}
 			if (_attempt.timer < 0.35f) {
+				return;
+			}
+			if (_attempt.candidates.empty()) {
+				_attempt.active = false;  // started from an attack: nothing to fall back to
 				return;
 			}
 			// not taken: give the health back and play one directly

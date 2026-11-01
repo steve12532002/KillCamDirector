@@ -70,7 +70,8 @@ namespace ED
 		}
 
 		void Build();             // scan every loaded IDLE form (call on kDataLoaded)
-		void BlockPlayerRandom();  // add "attacker is not the player" to killmove idles in the idle tree
+		void BlockPlayerRandom();
+		void AttachOrphans();  // hang stand-alone killmove idles under the vanilla killmove root  // add "attacker is not the player" to killmove idles in the idle tree
 		void LoadUser();
 		void SaveUser();
 

@@ -207,11 +207,17 @@ namespace ED::UI
 			changed |= ImGuiMCP::Checkbox("Stop random killmoves when YOU attack (NPC killmoves stay)", &s.blockRandomPlayerKillmoves);
 			changed |= ImGuiMCP::Checkbox("Allow essential / protected NPCs", &s.allowEssential);
 			changed |= ImGuiMCP::Checkbox("Prefer finishers made for your weapon", &s.preferWeaponMatch);
-			changed |= ImGuiMCP::Checkbox("Let the game start idle-tree finishers through an attack (VioLens style, fewer failures)", &s.engineKillmoves);
-			changed |= ImGuiMCP::Checkbox("Also execute on hit (when your blow drops them below the threshold)", &s.hitTrigger);
+			ImGuiMCP::SeparatorText("How executions start");
+			ImGuiMCP::TextWrapped(
+				"Like VioLens: the execute key arms your next attack on the marked enemy, and the game's own killmove system "
+				"turns that attack into the finisher (only the finishers picked by your On/Chance settings are allowed). "
+				"If the game cannot do it this time, the attack simply lands as a normal blow.");
+			changed |= ImGuiMCP::SliderFloat("Key arms the next attack for", &s.armWindow, 1.0f, 8.0f, "%.1f s");
+			changed |= ImGuiMCP::Checkbox("Also without the key: attacks on a marked enemy execute automatically", &s.hitTrigger);
 			if (s.hitTrigger) {
-				changed |= ImGuiMCP::SliderFloat("Chance on hit", &s.hitChance, 1.0f, 100.0f, "%.0f%%");
+				changed |= ImGuiMCP::SliderFloat("Automatic chance", &s.hitChance, 1.0f, 100.0f, "%.0f%%");
 			}
+			changed |= ImGuiMCP::Checkbox("Old way: the key plays the finisher directly (Kaputt style, often fails)", &s.directPlay);
 			changed |= ImGuiMCP::Checkbox("Cancel at once when the enemy does not follow (turn off if you get stuck)", &s.cancelUnpaired);
 
 			ImGuiMCP::SeparatorText("Executable enemies");
