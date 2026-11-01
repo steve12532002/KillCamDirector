@@ -30,9 +30,23 @@ namespace ED
 		void OnPostLoad();  // after: let enemies we left kneeling get up
 		void RequestExecute() { _executeRequested = true; }
 		// called from the input sink: execute right there, like Kaputt's execution key
+		bool VioLensLoaded()
+		{
+			static int loaded = -1;
+			if (loaded < 0) {
+				auto dh = RE::TESDataHandler::GetSingleton();
+				loaded = dh && dh->LookupModByName("VioLens SE.esp") ? 1 : 0;
+			}
+			return loaded == 1;
+		}
+		bool UseArming()
+		{
+			auto& s = Settings::Get();
+			return (VioLensLoaded() && s.vioLensBase) || !s.directPlay;
+		}
 		void ExecuteNow()
 		{
-			if (Settings::Get().directPlay) {
+			if (!UseArming()) {
 				if (auto player = RE::PlayerCharacter::GetSingleton()) {
 					StartExecution(player);
 				}

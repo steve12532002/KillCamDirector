@@ -14,18 +14,40 @@ namespace ED
 		kTotal
 	};
 
+	// same split as VioLens' Customize Killmoves pages
 	enum WeaponClass : int
 	{
 		kUnarmed = 0,
-		kOneHand,
-		kTwoHand,
+		kDagger,
+		kSword,
+		kAxe,
+		kMace,
+		kDualWield,
+		kGreatsword,
+		kBattleaxe,
+		kWarhammer,
 		kRanged,
 		kOther,
 		kWeaponClassCount
 	};
+	inline bool IsOneHanded(int a_wc) { return a_wc >= kDagger && a_wc <= kDualWield; }
+	inline bool IsTwoHanded(int a_wc) { return a_wc >= kGreatsword && a_wc <= kWarhammer; }
 
 	const char* CategoryName(Category a_cat);
 	const char* WeaponClassName(int a_class);
+
+	inline std::array<bool, kWeaponClassCount> AllTrue()
+	{
+		std::array<bool, kWeaponClassCount> a;
+		a.fill(true);
+		return a;
+	}
+	inline std::array<int, kWeaponClassCount> AllHundred()
+	{
+		std::array<int, kWeaponClassCount> a;
+		a.fill(100);
+		return a;
+	}
 
 	struct Finisher
 	{
@@ -44,10 +66,10 @@ namespace ED
 		bool                           femaleAttacker{ false };
 		bool                           maleAttacker{ false };
 		bool                           hasWeaponTags{ false };
-		std::array<bool, kWeaponClassCount> weaponOk{ true, true, true, true, true };
+		std::array<bool, kWeaponClassCount> weaponOk = AllTrue();
 		// per weapon class (Unarmed/1H/2H/Ranged/Other): used at all, and relative chance (0 = only via Next/Test)
-		std::array<bool, kWeaponClassCount> on{ true, true, true, true, true };
-		std::array<int, kWeaponClassCount>  chance{ 100, 100, 100, 100, 100 };
+		std::array<bool, kWeaponClassCount> on = AllTrue();
+		std::array<int, kWeaponClassCount>  chance = AllHundred();
 		int                            success{ 0 };
 		std::array<int, kWeaponClassCount> fails{};
 

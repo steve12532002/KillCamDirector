@@ -442,28 +442,30 @@ namespace ED
 
 	int Executor::WeaponClassOf(RE::PlayerCharacter* a_player) const
 	{
-		auto form = a_player->GetEquippedObject(false);
-		auto weap = form ? form->As<RE::TESObjectWEAP>() : nullptr;
-		if (!weap) {
-			return kUnarmed;
+		auto classOf = [](RE::TESForm* a_form) -> int {
+			auto weap = a_form ? a_form->As<RE::TESObjectWEAP>() : nullptr;
+			if (!weap) {
+				return kUnarmed;
+			}
+			switch (weap->GetWeaponType()) {
+			case RE::WEAPON_TYPE::kHandToHandMelee: return kUnarmed;
+			case RE::WEAPON_TYPE::kOneHandDagger: return kDagger;
+			case RE::WEAPON_TYPE::kOneHandSword: return kSword;
+			case RE::WEAPON_TYPE::kOneHandAxe: return kAxe;
+			case RE::WEAPON_TYPE::kOneHandMace: return kMace;
+			case RE::WEAPON_TYPE::kTwoHandSword: return kGreatsword;
+			case RE::WEAPON_TYPE::kTwoHandAxe: return weap->HasKeywordString("WeapTypeWarhammer") ? kWarhammer : kBattleaxe;
+			case RE::WEAPON_TYPE::kBow:
+			case RE::WEAPON_TYPE::kCrossbow: return kRanged;
+			default: return kOther;
+			}
+		};
+		int right = classOf(a_player->GetEquippedObject(false));
+		int left = classOf(a_player->GetEquippedObject(true));
+		if (IsOneHanded(right) && IsOneHanded(left)) {
+			return kDualWield;
 		}
-		switch (weap->GetWeaponType()) {
-		case RE::WEAPON_TYPE::kHandToHandMelee:
-			return kUnarmed;
-		case RE::WEAPON_TYPE::kOneHandSword:
-		case RE::WEAPON_TYPE::kOneHandDagger:
-		case RE::WEAPON_TYPE::kOneHandAxe:
-		case RE::WEAPON_TYPE::kOneHandMace:
-			return kOneHand;
-		case RE::WEAPON_TYPE::kTwoHandSword:
-		case RE::WEAPON_TYPE::kTwoHandAxe:
-			return kTwoHand;
-		case RE::WEAPON_TYPE::kBow:
-		case RE::WEAPON_TYPE::kCrossbow:
-			return kRanged;
-		default:
-			return kOther;
-		}
+		return right;
 	}
 
 	Category Executor::CategoryFor(RE::PlayerCharacter* a_player, RE::Actor* a_victim) const
@@ -904,6 +906,8 @@ namespace ED
 		// Prepared *before* the attack, the way VioLens works: the chosen finishers have their chance gates lifted
 		// and the victim is on 1 HP, so whatever attack the player starts next, the game's own killmove check
 		// (wherever it runs) sees a lethal blow and is allowed exactly these finishers.
+		// a kneeling (bleedout) victim only gets bleedout killmoves from the game: let it count as standing
+		ReleaseKneel(a_victim, false);
 		std::vector<Finisher*> cands;
 		int                    wc = 0;
 		Category               cat = Category::kFront;
@@ -982,7 +986,7 @@ namespace ED
 	{
 		auto& s = Settings::Get();
 		// automatic mode: arm on the marked enemy in front of you (one roll per enemy)
-		if (!_armCtx && s.hitTrigger && !_attempt.active && !a_player->IsInKillMove()) {
+		if (!_armCtx && s.hitTrigger && UseArming() && !_attempt.active && !a_player->IsInKillMove()) {
 			if (auto victim = PickVictim(a_player)) {
 				auto it = _marked.find(victim->GetFormID());
 				if (it != _marked.end() && !it->second.autoRolled) {

@@ -52,7 +52,8 @@ namespace ED
 		bool cancelUnpaired{ false };
 		bool  engineKillmoves{ false };  // let the game start idle-tree killmoves (VioLens style)
 		bool  directPlay{ true };     // play the finisher directly on key press (false = arm the next attack, needs killmove trees)
-		float armWindow{ 3.0f };      // seconds the execute key keeps the next attack armed
+		float armWindow{ 3.0f };
+		bool  vioLensBase{ true };    // with VioLens SE.esp loaded: always arm and let the game do it      // seconds the execute key keeps the next attack armed
 		bool  hitTrigger{ false };    // automatic: attacks on a marked enemy execute without the key  // also execute when your hit drops an enemy below the threshold
 		float hitChance{ 100.0f };  // stop the player's animation when the victim does not follow
 

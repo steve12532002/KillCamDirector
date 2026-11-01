@@ -62,8 +62,17 @@ namespace ED
 				else if (t == "a_male") f.maleAttacker = true;
 				else if (t == "creature") f.creature = true;
 				else if (t == "a_all" || t == "a_all_l" || t == "a_all_r") { anyWeapon = true; ok.fill(true); }
-				else if (t.starts_with("a_1h") || t == "a_dagger" || t == "a_sword" || t == "a_axe" || t == "a_mace") { anyWeapon = true; ok[kOneHand] = true; }
-				else if (t.starts_with("a_2h")) { anyWeapon = true; ok[kTwoHand] = true; }
+				else if (t == "a_dagger") { anyWeapon = true; ok[kDagger] = true; }
+				else if (t == "a_sword") { anyWeapon = true; ok[kSword] = true; }
+				else if (t == "a_axe" || t == "a_waraxe") { anyWeapon = true; ok[kAxe] = true; }
+				else if (t == "a_mace") { anyWeapon = true; ok[kMace] = true; }
+				else if (t == "a_dw" || t == "a_dual") { anyWeapon = true; ok[kDualWield] = true; }
+				else if (t.starts_with("a_1h")) { anyWeapon = true; for (int w = kDagger; w <= kDualWield; ++w) ok[w] = true; }
+				else if (t == "a_greatsword" || t == "a_2hm") { anyWeapon = true; ok[kGreatsword] = true; }
+				else if (t == "a_battleaxe") { anyWeapon = true; ok[kBattleaxe] = true; }
+				else if (t == "a_warhammer") { anyWeapon = true; ok[kWarhammer] = true; }
+				else if (t == "a_2hw") { anyWeapon = true; ok[kBattleaxe] = ok[kWarhammer] = true; }
+				else if (t.starts_with("a_2h")) { anyWeapon = true; for (int w = kGreatsword; w <= kWarhammer; ++w) ok[w] = true; }
 				else if (t == "a_h2h" || t == "a_unarmed") { anyWeapon = true; ok[kUnarmed] = true; }
 				else if (t == "a_bow" || t == "a_ranged") { anyWeapon = true; ok[kRanged] = true; }
 			}
@@ -89,7 +98,7 @@ namespace ED
 
 	const char* WeaponClassName(int a_class)
 	{
-		static const char* n[] = { "Unarmed", "1H", "2H", "Ranged", "Other" };
+		static const char* n[] = { "Unarmed", "Dagger", "Sword", "Axe", "Mace", "Dual wield", "Greatsword", "Battleaxe", "Warhammer", "Ranged", "Other" };
 		return a_class >= 0 && a_class < kWeaponClassCount ? n[a_class] : "?";
 	}
 
@@ -183,8 +192,11 @@ namespace ED
 				std::array<bool, kWeaponClassCount> ok{};
 				bool any = false;
 				if (Contains(ev, "h2h") || Contains(ev, "unarmed")) { ok[kUnarmed] = true; any = true; }
-				if (Contains(ev, "1hm") || Contains(ev, "1hw") || Contains(ev, "dw") || Contains(ev, "dualwield") || Contains(ev, "1h_")) { ok[kOneHand] = true; any = true; }
-				if (Contains(ev, "2hm") || Contains(ev, "2hw") || Contains(ev, "2h_")) { ok[kTwoHand] = true; any = true; }
+				if (Contains(ev, "1hm") || Contains(ev, "1hw") || Contains(ev, "1h_")) { for (int w = kDagger; w <= kMace; ++w) ok[w] = true; any = true; }
+				if (Contains(ev, "dw") || Contains(ev, "dualwield")) { ok[kDualWield] = true; any = true; }
+				if (Contains(ev, "dagger") || Contains(ev, "knife")) { ok[kDagger] = true; any = true; }
+				if (Contains(ev, "2hm") || Contains(ev, "2h_")) { ok[kGreatsword] = true; any = true; }
+				if (Contains(ev, "2hw")) { ok[kBattleaxe] = ok[kWarhammer] = true; any = true; }
 				if (Contains(ev, "bow")) { ok[kRanged] = true; any = true; }
 				if (any) {
 					f.hasWeaponTags = true;
@@ -474,7 +486,7 @@ namespace ED
 	nlohmann::json Catalog::ToJson(bool a_stats) const
 	{
 		nlohmann::json j;
-		j["version"] = 4;
+		j["version"] = 5;
 		j["on"] = nlohmann::json::object();
 		j["chance"] = nlohmann::json::object();
 		j["category"] = nlohmann::json::object();
@@ -514,11 +526,23 @@ namespace ED
 				}
 			}
 		}
+		// files before v5 had 5 classes: Unarmed, 1H, 2H, Ranged, Other
+		const bool oldClasses = j.value("version", 1) < 5;
+		auto mapOld = [](int a_new) {
+			if (a_new == kUnarmed) return 0;
+			if (IsOneHanded(a_new)) return 1;
+			if (IsTwoHanded(a_new)) return 2;
+			if (a_new == kRanged) return 3;
+			return 4;
+		};
 		if (j.contains("on")) {
 			for (auto& [k, v] : j["on"].items()) {
 				if (auto f = Find(k); f && v.is_array()) {
-					for (std::size_t i = 0; i < v.size() && i < f->on.size(); ++i) {
-						f->on[i] = v[i].get<int>() != 0;
+					for (int w = 0; w < kWeaponClassCount; ++w) {
+						std::size_t src = oldClasses ? static_cast<std::size_t>(mapOld(w)) : static_cast<std::size_t>(w);
+						if (src < v.size()) {
+							f->on[w] = v[src].get<int>() != 0;
+						}
 					}
 				}
 			}
@@ -532,8 +556,11 @@ namespace ED
 				if (v.is_number()) {
 					f->chance.fill(std::clamp(v.get<int>(), 0, 100));
 				} else if (v.is_array()) {
-					for (std::size_t i = 0; i < v.size() && i < f->chance.size(); ++i) {
-						f->chance[i] = std::clamp(v[i].get<int>(), 0, 100);
+					for (int w = 0; w < kWeaponClassCount; ++w) {
+						std::size_t src = oldClasses ? static_cast<std::size_t>(mapOld(w)) : static_cast<std::size_t>(w);
+						if (src < v.size()) {
+							f->chance[w] = std::clamp(v[src].get<int>(), 0, 100);
+						}
 					}
 				}
 			}
@@ -546,7 +573,7 @@ namespace ED
 			}
 		}
 		// failure counts from before v4 were made with a different way of starting finishers - start afresh
-		if (a_stats && j.contains("stats") && j.value("version", 1) >= 4) {
+		if (a_stats && j.contains("stats") && j.value("version", 1) >= 5) {
 			for (auto& [k, v] : j["stats"].items()) {
 				if (auto f = Find(k)) {
 					f->success = v.value("success", 0);

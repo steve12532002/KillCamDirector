@@ -208,6 +208,11 @@ namespace ED::UI
 			changed |= ImGuiMCP::Checkbox("Allow essential / protected NPCs", &s.allowEssential);
 			changed |= ImGuiMCP::Checkbox("Prefer finishers made for your weapon", &s.preferWeaponMatch);
 			ImGuiMCP::SeparatorText("How executions start");
+			if (Executor::Get().VioLensLoaded()) {
+				changed |= ImGuiMCP::Checkbox("VioLens is loaded: use it as the base (key arms your next attack, the game does the killmove)", &s.vioLensBase);
+			} else {
+				ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.7f, 0.4f, 1.0f }, "VioLens SE.esp is not loaded - finishers are played directly");
+			}
 			ImGuiMCP::TextWrapped(
 				"Default: the execute key plays the finisher at once. Vanilla killmoves are played through stand-alone twins "
 				"(no idle tree), the same way Low-blow and Thicc Thighs finishers start. "
@@ -257,7 +262,7 @@ namespace ED::UI
 			ImGuiMCP::TextWrapped(
 				"Every paired animation the game has loaded. Untick to stop using it, change its category if it was guessed wrong, "
 				"or press Next to use it on your next execution. 'Fails' counts animations that refused to start per weapon "
-				"(Unarmed/1H/2H/Ranged/Other) - after 2 failures with a weapon an animation is marked auto-off and no longer picked "
+				"(by weapon type) - after 3 failures with a weapon an animation is marked auto-off and no longer picked "
 				"for that weapon (Reset gives it another chance; Test still plays it). "
 				"'Chance' is how likely an animation is picked compared with the others that fit (100 = normal, 50 = half as often, "
 				"0 = never at random, only with Next). Next = the next time you press the execute key on an enemy, this animation is "
@@ -300,7 +305,9 @@ namespace ED::UI
 			ImGuiMCP::SeparatorText("Weapon type");
 			ImGuiMCP::RadioButton("All", &g_weapon, -1);
 			for (int w = 0; w < kWeaponClassCount; ++w) {
-				ImGuiMCP::SameLine();
+				if (w != kGreatsword) {
+					ImGuiMCP::SameLine();  // second row from the two-handed weapons on
+				}
 				ImGuiMCP::RadioButton(WeaponClassName(w), &g_weapon, w);
 			}
 			if (auto& next = Executor::Get().ForcedNext(); !next.empty()) {
@@ -404,14 +411,24 @@ namespace ED::UI
 					if (f.femaleAttacker) needs += "female ";
 					if (f.maleAttacker) needs += "male ";
 					if (f.hasWeaponTags) {
-						for (int w = 0; w < kWeaponClassCount; ++w) {
-							if (f.weaponOk[w]) needs += std::string(WeaponClassName(w)) + " ";
+						if (std::all_of(f.weaponOk.begin(), f.weaponOk.end(), [](bool b) { return b; })) {
+							needs += "any weapon ";
+						} else {
+							for (int w = 0; w < kWeaponClassCount; ++w) {
+								if (f.weaponOk[w]) needs += std::string(WeaponClassName(w)) + ", ";
+							}
 						}
 					}
 					if (f.creature) needs += "creature ";
 					ImGuiMCP::Text("%s", needs.empty() ? "-" : needs.c_str());
 					ImGuiMCP::TableNextColumn();
-					ImGuiMCP::Text("%d / %d %d %d %d %d", f.success, f.fails[0], f.fails[1], f.fails[2], f.fails[3], f.fails[4]);
+					{
+						int failSum = 0;
+						for (int w = 0; w < kWeaponClassCount; ++w) {
+							failSum += (g_weapon < 0 || g_weapon == w) ? f.fails[w] : 0;
+						}
+						ImGuiMCP::Text("%d / %d", f.success, failSum);
+					}
 					{
 						std::string off;
 						for (int w = 0; w < kWeaponClassCount; ++w) {
