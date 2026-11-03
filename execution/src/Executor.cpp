@@ -916,8 +916,6 @@ namespace ED
 		// Prepared *before* the attack, the way VioLens works: the chosen finishers have their chance gates lifted
 		// and the victim is on 1 HP, so whatever attack the player starts next, the game's own killmove check
 		// (wherever it runs) sees a lethal blow and is allowed exactly these finishers.
-		// a kneeling (bleedout) victim only gets bleedout killmoves from the game: let it count as standing
-		ReleaseKneel(a_victim, false);
 		if (!Settings::Get().armUsesSelection) {
 			// VioLens decides: exactly what happens without this plugin - the game's killmove system and VioLens'
 			// own Customize Killmoves pick - only the blow is made lethal and the player block lifted for it
@@ -937,6 +935,9 @@ namespace ED
 			_armedUntil = _clock + a_window;
 			return true;
 		}
+		// a kneeling (bleedout) victim only gets bleedout killmoves from the game: let it count as standing
+		ReleaseKneel(a_victim, false);
+
 		std::vector<Finisher*> cands;
 		int                    wc = 0;
 		Category               cat = Category::kFront;
