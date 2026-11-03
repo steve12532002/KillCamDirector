@@ -74,7 +74,9 @@ namespace ED
 		std::array<int, kWeaponClassCount> fails{};
 
 		// creatures and special races (draugr, falmer, riekling...) are kept apart from the human finishers
-		bool IsCreatureGroup() const { return creature || targetSpecific || !raceWord.empty(); }
+		// (race checks in the idle tree are not used here: VioLens lists the human races in them, so they cannot tell
+		// a human finisher from a creature one - the per-victim condition check sorts that out at execution time)
+		bool IsCreatureGroup() const { return creature || !raceWord.empty(); }
 
 		// failed repeatedly with this weapon and never proven to work often enough: left out of random picks
 		bool AutoExcluded(int a_wc) const { return fails[a_wc] >= 3 && fails[a_wc] > success * 2; }
