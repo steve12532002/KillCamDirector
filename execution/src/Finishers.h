@@ -72,6 +72,7 @@ namespace ED
 		std::array<int, kWeaponClassCount>  chance = AllHundred();
 		int                            success{ 0 };
 		std::array<int, kWeaponClassCount> fails{};
+		std::array<int, kWeaponClassCount> wins{};  // paired successfully, per weapon type
 
 		// creatures and special races (draugr, falmer, riekling...) are kept apart from the human finishers
 		// (race checks in the idle tree are not used here: VioLens lists the human races in them, so they cannot tell

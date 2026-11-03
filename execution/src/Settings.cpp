@@ -23,7 +23,7 @@ namespace ED
 			s.executeRange = F(ini, "General", "fExecuteRange", s.executeRange);
 			s.executeCone = F(ini, "General", "fExecuteCone", s.executeCone);
 			s.markRange = F(ini, "General", "fMarkRange", s.markRange);
-			s.blockRandomPlayerKillmoves = ini.GetBoolValue("General", "bBlockRandomPlayerKillmoves", s.blockRandomPlayerKillmoves);
+			s.blockRandomPlayerKillmoves = ini.GetBoolValue("General", "bBlockRandomPlayerKillmoves3", s.blockRandomPlayerKillmoves);
 			s.humanoidOnly = ini.GetBoolValue("General", "bHumanoidOnly", s.humanoidOnly);
 			s.allowEssential = ini.GetBoolValue("General", "bAllowEssential", s.allowEssential);
 			s.ensureKill = ini.GetBoolValue("General", "bEnsureKill", s.ensureKill);
@@ -33,7 +33,7 @@ namespace ED
 			s.notifications = ini.GetBoolValue("General", "bNotifications", s.notifications);
 
 			s.staggerEnabled = ini.GetBoolValue("Stagger", "bEnabled", s.staggerEnabled);
-			s.bleedoutEnabled = ini.GetBoolValue("Bleedout", "bEnabled", s.bleedoutEnabled);
+			s.bleedoutEnabled = ini.GetBoolValue("Bleedout", "bEnabled3", s.bleedoutEnabled);
 			s.bleedoutTime = F(ini, "Bleedout", "fTime", s.bleedoutTime);
 			s.staggerInterval = F(ini, "Stagger", "fInterval", s.staggerInterval);
 			s.staggerMagnitude = F(ini, "Stagger", "fMagnitude", s.staggerMagnitude);
@@ -48,10 +48,11 @@ namespace ED
 			s.cancelUnpaired = ini.GetBoolValue("General", "bCancelUnpaired", s.cancelUnpaired);
 			s.hitTrigger = ini.GetBoolValue("HitTrigger", "bEnabled", s.hitTrigger);
 			s.engineKillmoves = ini.GetBoolValue("General", "bGameKillmoves", s.engineKillmoves);
-			s.directPlay = ini.GetBoolValue("General", "bDirectPlay2", s.directPlay);
+			s.directPlay = ini.GetBoolValue("General", "bDirectPlay3", s.directPlay);
 			s.armWindow = F(ini, "General", "fArmWindow", s.armWindow);
-			s.vioLensBase = ini.GetBoolValue("General", "bVioLensBase", s.vioLensBase);
+			s.vioLensBase = ini.GetBoolValue("General", "bVioLensBase3", s.vioLensBase);
 			s.armUsesSelection = ini.GetBoolValue("General", "bArmUsesSelection", s.armUsesSelection);
+			s.exploreChance = F(ini, "General", "fExploreChance", s.exploreChance);
 			s.hitChance = F(ini, "HitTrigger", "fChance", s.hitChance);
 			s.markerR = static_cast<int>(ini.GetLongValue("Marker", "iRed", s.markerR));
 			s.markerG = static_cast<int>(ini.GetLongValue("Marker", "iGreen", s.markerG));
@@ -81,19 +82,19 @@ namespace ED
 		ini.SetBoolValue("General", "bCancelUnpaired", cancelUnpaired);
 		ini.SetBoolValue("HitTrigger", "bEnabled", hitTrigger);
 		ini.SetBoolValue("General", "bGameKillmoves", engineKillmoves);
-		ini.SetBoolValue("General", "bDirectPlay2", directPlay);
+		ini.SetBoolValue("General", "bDirectPlay3", directPlay);
 		ini.SetDoubleValue("General", "fArmWindow", armWindow);
-		ini.SetBoolValue("General", "bVioLensBase", vioLensBase);
+		ini.SetBoolValue("General", "bVioLensBase3", vioLensBase);
 		ini.SetBoolValue("General", "bArmUsesSelection", armUsesSelection);
 		ini.SetDoubleValue("HitTrigger", "fChance", hitChance);
 		ini.SetLongValue("General", "iExecuteKey", static_cast<long>(executeKey));
 		ini.SetDoubleValue("General", "fHealthThreshold", healthThreshold);
 		ini.SetDoubleValue("General", "fExecuteRange", executeRange);
-		ini.SetBoolValue("General", "bBlockRandomPlayerKillmoves", blockRandomPlayerKillmoves);
+		ini.SetBoolValue("General", "bBlockRandomPlayerKillmoves3", blockRandomPlayerKillmoves);
 		ini.SetBoolValue("General", "bAllowEssential", allowEssential);
 		ini.SetBoolValue("General", "bPreferWeaponMatch", preferWeaponMatch);
 		ini.SetBoolValue("Stagger", "bEnabled", staggerEnabled);
-		ini.SetBoolValue("Bleedout", "bEnabled", bleedoutEnabled);
+		ini.SetBoolValue("Bleedout", "bEnabled3", bleedoutEnabled);
 		ini.SetDoubleValue("Bleedout", "fTime", bleedoutTime);
 		ini.SetDoubleValue("Stagger", "fInterval", staggerInterval);
 		ini.SetBoolValue("Marker", "bEnabled", markerEnabled);

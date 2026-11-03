@@ -203,16 +203,23 @@ namespace ED::UI
 				s.healthThreshold = pct / 100.0f;
 				changed = true;
 			}
+			{
+				float pctE = s.exploreChance * 100.0f;
+				if (ImGuiMCP::SliderFloat("Try an untried finisher", &pctE, 0.0f, 100.0f, "%.0f%% of the time")) {
+					s.exploreChance = pctE / 100.0f;
+					changed = true;
+				}
+			}
 			changed |= ImGuiMCP::SliderFloat("Execute range", &s.executeRange, 120.0f, 500.0f, "%.0f units");
-			changed |= ImGuiMCP::Checkbox("Stop random killmoves when YOU attack (NPC killmoves stay)", &s.blockRandomPlayerKillmoves);
+			changed |= ImGuiMCP::Checkbox("Stop the game's / VioLens' random killmoves when YOU attack (restart needed)", &s.blockRandomPlayerKillmoves);
 			changed |= ImGuiMCP::Checkbox("Allow essential / protected NPCs", &s.allowEssential);
 			changed |= ImGuiMCP::Checkbox("Prefer finishers made for your weapon", &s.preferWeaponMatch);
 			ImGuiMCP::SeparatorText("How executions start");
 			if (Executor::Get().VioLensLoaded()) {
-				changed |= ImGuiMCP::Checkbox("VioLens is loaded: use it as the base (key arms your next attack, the game does the killmove)", &s.vioLensBase);
+				changed |= ImGuiMCP::Checkbox("Use VioLens as the base instead (key arms your next attack, VioLens does the killmove)", &s.vioLensBase);
 				changed |= ImGuiMCP::Checkbox("Armed attack uses my Finishers picks (off = VioLens' own Customize Killmoves decides)", &s.armUsesSelection);
 			} else {
-				ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.7f, 0.4f, 1.0f }, "VioLens SE.esp is not loaded - finishers are played directly");
+				ImGuiMCP::TextDisabled("Independent mode: finishers are played directly; VioLens is not needed");
 			}
 			ImGuiMCP::TextWrapped(
 				"Default: the execute key plays the finisher at once. Vanilla killmoves are played through stand-alone twins "

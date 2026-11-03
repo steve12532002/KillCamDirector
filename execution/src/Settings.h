@@ -21,7 +21,7 @@ namespace ED
 		float         executeRange{ 280.0f };
 		float         executeCone{ 75.0f };  // degrees either side of where you face
 		float         markRange{ 3000.0f };
-		bool          blockRandomPlayerKillmoves{ true };
+		bool          blockRandomPlayerKillmoves{ false };
 		bool          humanoidOnly{ true };
 		bool          allowEssential{ false };
 		bool          ensureKill{ true };
@@ -31,7 +31,7 @@ namespace ED
 		bool          notifications{ true };
 
 		// [Stagger]
-		bool  bleedoutEnabled{ true };   // executable enemies kneel (bleedout) for a while
+		bool  bleedoutEnabled{ false };  // executable enemies kneel (bleedout) for a while - off: it makes the game refuse pairs
 		float bleedoutTime{ 8.0f };
 		bool  staggerEnabled{ true };
 		float staggerInterval{ 2.5f };
@@ -53,8 +53,9 @@ namespace ED
 		bool  engineKillmoves{ false };  // let the game start idle-tree killmoves (VioLens style)
 		bool  directPlay{ true };     // play the finisher directly on key press (false = arm the next attack, needs killmove trees)
 		float armWindow{ 3.0f };
-		bool  vioLensBase{ true };
-		bool  armUsesSelection{ false };  // armed attack: only my Finishers picks (true) or whatever VioLens picks (false)    // with VioLens SE.esp loaded: always arm and let the game do it      // seconds the execute key keeps the next attack armed
+		bool  vioLensBase{ false };
+		bool  armUsesSelection{ false };
+		float exploreChance{ 0.25f };   // how often an untried finisher is put first  // armed attack: only my Finishers picks (true) or whatever VioLens picks (false)    // with VioLens SE.esp loaded: always arm and let the game do it      // seconds the execute key keeps the next attack armed
 		bool  hitTrigger{ false };    // automatic: attacks on a marked enemy execute without the key  // also execute when your hit drops an enemy below the threshold
 		float hitChance{ 100.0f };  // stop the player's animation when the victim does not follow
 

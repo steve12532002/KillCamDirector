@@ -620,6 +620,30 @@ namespace ED
 				cands.push_back(f);
 			}
 		}
+		// Learned from experience: animations that have already paired with this weapon go first (still in random
+		// order among themselves); now and then an untried one is put in front so new ones get discovered.
+		{
+			std::vector<Finisher*> proven, untried, rest;
+			for (auto f : cands) {
+				if (f->wins[wc] > 0) {
+					proven.push_back(f);
+				} else if (f->fails[wc] == 0) {
+					untried.push_back(f);
+				} else {
+					rest.push_back(f);
+				}
+			}
+			std::uniform_real_distribution<float> roll(0.0f, 1.0f);
+			cands.clear();
+			bool explore = !untried.empty() && (proven.empty() || roll(_rng) < Settings::Get().exploreChance);
+			if (explore) {
+				cands.push_back(untried.front());
+				untried.erase(untried.begin());
+			}
+			cands.insert(cands.end(), proven.begin(), proven.end());
+			cands.insert(cands.end(), untried.begin(), untried.end());
+			cands.insert(cands.end(), rest.begin(), rest.end());
+		}
 		if (!_forcedNext.empty()) {
 			if (auto f = Catalog::Get().Find(_forcedNext)) {
 				cands.insert(cands.begin(), f);
@@ -1331,6 +1355,7 @@ namespace ED
 				_attempt.started = true;
 				if (_attempt.current) {
 					_attempt.current->success++;
+					_attempt.current->wins[_attempt.weaponClass]++;
 					_lastResult = _attempt.current->event;
 					_recent.push_back(_attempt.current);
 					while (_recent.size() > 3) {

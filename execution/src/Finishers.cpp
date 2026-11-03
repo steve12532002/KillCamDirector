@@ -502,7 +502,7 @@ namespace ED
 	nlohmann::json Catalog::ToJson(bool a_stats) const
 	{
 		nlohmann::json j;
-		j["version"] = 5;
+		j["version"] = 6;
 		j["on"] = nlohmann::json::object();
 		j["chance"] = nlohmann::json::object();
 		j["category"] = nlohmann::json::object();
@@ -519,8 +519,10 @@ namespace ED
 			if (f.userCategory >= 0) {
 				j["category"][f.key] = f.userCategory;
 			}
-			if (a_stats && (f.success || std::any_of(f.fails.begin(), f.fails.end(), [](int v) { return v > 0; }))) {
-				j["stats"][f.key] = { { "success", f.success }, { "fail", std::vector<int>(f.fails.begin(), f.fails.end()) } };
+			if (a_stats && (f.success || std::any_of(f.fails.begin(), f.fails.end(), [](int v) { return v > 0; }) ||
+							std::any_of(f.wins.begin(), f.wins.end(), [](int v) { return v > 0; }))) {
+				j["stats"][f.key] = { { "success", f.success }, { "fail", std::vector<int>(f.fails.begin(), f.fails.end()) },
+					{ "win", std::vector<int>(f.wins.begin(), f.wins.end()) } };
 			}
 		}
 		return j;
@@ -589,10 +591,16 @@ namespace ED
 			}
 		}
 		// failure counts from before v4 were made with a different way of starting finishers - start afresh
-		if (a_stats && j.contains("stats") && j.value("version", 1) >= 5) {
+		if (a_stats && j.contains("stats") && j.value("version", 1) >= 6) {
 			for (auto& [k, v] : j["stats"].items()) {
 				if (auto f = Find(k)) {
 					f->success = v.value("success", 0);
+					if (v.contains("win")) {
+						auto arr = v["win"].get<std::vector<int>>();
+						for (std::size_t i = 0; i < arr.size() && i < f->wins.size(); ++i) {
+							f->wins[i] = arr[i];
+						}
+					}
 					if (v.contains("fail")) {
 						auto arr = v["fail"].get<std::vector<int>>();
 						for (std::size_t i = 0; i < arr.size() && i < f->fails.size(); ++i) {
