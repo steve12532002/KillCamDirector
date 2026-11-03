@@ -967,6 +967,31 @@ namespace ED
 			names += f->event + " ";
 		}
 		logger::info("Armed on {} ({}, {} weapon) - allowed: {}", a_victim->GetDisplayFullName(), CategoryName(cat), WeaponClassName(wc), names);
+		// diagnostics: the idle-tree path of the first allowed finisher, with every condition and whether it holds
+		static int dumped = 0;
+		if (dumped < 3) {
+			++dumped;
+			for (auto idle : ctx->chosen.front()->idles) {
+				if (!idle->parentIdle) {
+					continue;
+				}
+				logger::info("  tree path of {} ({:08X}):", idle->GetFormEditorID(), idle->GetFormID());
+				int guard = 0;
+				for (auto n = idle; n && guard < 32; n = n->parentIdle, ++guard) {
+					std::string conds;
+					for (auto item = n->conditions.head; item; item = item->next) {
+						RE::ConditionCheckParams params(a_player, a_victim);
+						bool ok = item->IsTrue(params);
+						conds += std::format(" [fn{} obj{} op{} {:.2f}{}{}]", static_cast<int>(item->data.functionData.function.get()),
+							static_cast<int>(item->data.object), static_cast<int>(item->data.flags.opCode.get()), item->data.comparisonValue.f,
+							item->data.flags.isOR ? " OR" : "", ok ? " ok" : " FAIL");
+					}
+					const char* id = n->GetFormEditorID();
+					logger::info("    {} ({:08X}) flags {:02X}:{}", id ? id : "?", n->GetFormID(), static_cast<int>(n->data.flags.underlying()), conds.empty() ? " (none)" : conds);
+				}
+				break;
+			}
+		}
 		_armCtx = ctx;
 		_armedUntil = _clock + a_window;
 		return true;
