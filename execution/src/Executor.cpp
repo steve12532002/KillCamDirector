@@ -983,7 +983,7 @@ namespace ED
 						RE::ConditionCheckParams params(a_player, a_victim);
 						bool ok = item->IsTrue(params);
 						conds += std::format(" [fn{} obj{} op{} {:.2f}{}{}]", static_cast<int>(item->data.functionData.function.get()),
-							static_cast<int>(item->data.object), static_cast<int>(item->data.flags.opCode.get()), item->data.comparisonValue.f,
+							static_cast<int>(item->data.object.get()), static_cast<int>(item->data.flags.opCode.get()), item->data.comparisonValue.f,
 							item->data.flags.isOR ? " OR" : "", ok ? " ok" : " FAIL");
 					}
 					const char* id = n->GetFormEditorID();
