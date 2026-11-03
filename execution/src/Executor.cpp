@@ -727,6 +727,15 @@ namespace ED
 			{
 				int guard = 0;
 				for (auto i = a_idle; i && guard < 32; i = i->parentIdle, ++guard) {
+					// Only inside the killmove part of the tree. Higher up are the attack trees (BFCO, SCSI...),
+					// whose own chance/global gates pick the attack branch - lifting those sent every attack down
+					// some other branch before the game ever reached the killmoves.
+					if (i != a_idle) {
+						const char* id = i->GetFormEditorID();
+						if (!id || Lower(id).find("kill") == std::string::npos) {
+							break;
+						}
+					}
 					if (std::find_if(_heads.begin(), _heads.end(), [&](auto& h) { return h.first == i; }) != _heads.end()) {
 						continue;
 					}
