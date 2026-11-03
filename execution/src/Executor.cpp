@@ -693,9 +693,6 @@ namespace ED
 			return;
 		}
 		logger::info("Execute {} ({}, {} weapon): {} candidates", victim->GetDisplayFullName(), CategoryName(cat), WeaponClassName(wc), cands.size());
-		if (s.engineKillmoves && TryEngineKillmove(a_player, victim, cands, wc)) {
-			return;
-		}
 		Begin(victim, std::move(cands), wc, false);
 	}
 
@@ -930,17 +927,17 @@ namespace ED
 			Notify("\xE9\x99\x84\xE8\xBF\x91\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE8\x99\x95\xE6\xB1\xBA\xE7\x9A\x84\xE6\x95\xB5\xE4\xBA\xBA");  // 附近沒有可處決的敵人
 			return;
 		}
-		if (ArmOn(player, victim, Settings::Get().armWindow)) {
+		if (ArmOn(player, victim, Settings::Get().armWindow, false)) {
 			Notify("\xE6\x94\xBB\xE6\x93\x8A\xE4\xBB\xA5\xE8\x99\x95\xE6\xB1\xBA");  // 攻擊以處決
 		}
 	}
 
-	bool Executor::ArmOn(RE::PlayerCharacter* a_player, RE::Actor* a_victim, float a_window)
+	bool Executor::ArmOn(RE::PlayerCharacter* a_player, RE::Actor* a_victim, float a_window, bool a_gameDecides)
 	{
 		// Prepared *before* the attack, the way VioLens works: the chosen finishers have their chance gates lifted
 		// and the victim is on 1 HP, so whatever attack the player starts next, the game's own killmove check
 		// (wherever it runs) sees a lethal blow and is allowed exactly these finishers.
-		if (!Settings::Get().armUsesSelection) {
+		if (a_gameDecides || !Settings::Get().armUsesSelection) {
 			// VioLens decides: exactly what happens without this plugin - the game's killmove system and VioLens'
 			// own Customize Killmoves pick - only the blow is made lethal and the player block lifted for it
 			auto ctx = std::make_shared<AttackContext>();
@@ -1085,7 +1082,7 @@ namespace ED
 					it->second.autoRolled = true;
 					std::uniform_real_distribution<float> roll(0.0f, 100.0f);
 					if (roll(_rng) < s.hitChance) {
-						ArmOn(a_player, victim, 1.0f);
+						ArmOn(a_player, victim, 1.0f, false);
 					}
 				}
 			}
@@ -1189,6 +1186,14 @@ namespace ED
 		_attempt.immediate = true;
 		auto player = RE::PlayerCharacter::GetSingleton();
 		if (player && !TryNext(player)) {
+			if (_attempt.fallbackArm) {
+				_attempt.active = false;
+				if (ArmOn(player, a_victim, Settings::Get().armWindow, true)) {
+					logger::info("  nothing could start directly - armed the next attack for the game's own killmove");
+					Notify("\xE6\x94\xBB\xE6\x93\x8A\xE4\xBB\xA5\xE8\x99\x95\xE6\xB1\xBA");  // 攻擊以處決
+				}
+				return;
+			}
 			Finish(false, "\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");
 		}
 		_attempt.immediate = false;
@@ -1243,6 +1248,12 @@ namespace ED
 				++_attempt.index;
 				++_attempt.tries;
 				continue;
+			}
+			if (_attempt.immediate && !_attempt.test) {
+				// Nothing could be started right now. The game's own killmove system starts its pairs from
+				// inside an attack, where they work: arm the next attack instead of hammering the player.
+				_attempt.fallbackArm = true;
+				return false;
 			}
 			if (_attempt.immediate) {
 				_attempt.index = 0;

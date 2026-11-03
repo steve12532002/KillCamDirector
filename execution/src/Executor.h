@@ -107,6 +107,7 @@ namespace ED
 			bool                   oneSided{ false };
 			int                    refusals{ 0 };
 			bool                   immediate{ false };
+			bool                   fallbackArm{ false };
 			bool                   engine{ false };
 			float                  engineHp{ 0 };
 			std::vector<Finisher*> refusedList;
@@ -126,7 +127,7 @@ namespace ED
 		void        PrepareVictim(RE::Actor* a_victim);
 		void        ReleaseKneel(RE::Actor* a_victim, bool a_standUp);
 		RE::Actor*  PickVictim(RE::PlayerCharacter* a_player);
-		bool        ArmOn(RE::PlayerCharacter* a_player, RE::Actor* a_victim, float a_window);
+		bool        ArmOn(RE::PlayerCharacter* a_player, RE::Actor* a_victim, float a_window, bool a_gameDecides);
 		void        Disarm(bool a_started);
 		void        UpdateArm(RE::PlayerCharacter* a_player);
 		bool        TryEngineKillmove(RE::PlayerCharacter* a_player, RE::Actor* a_victim, const std::vector<Finisher*>& a_cands, int a_wc);
