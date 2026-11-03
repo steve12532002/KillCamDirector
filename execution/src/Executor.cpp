@@ -785,6 +785,7 @@ namespace ED
 			std::unique_ptr<RandomGateStrip> strip;
 			float                            hp{ 0 };
 			int                              wc{ 0 };
+			bool                             liftedAll{ false };
 		};
 	}
 
@@ -917,6 +918,25 @@ namespace ED
 		// (wherever it runs) sees a lethal blow and is allowed exactly these finishers.
 		// a kneeling (bleedout) victim only gets bleedout killmoves from the game: let it count as standing
 		ReleaseKneel(a_victim, false);
+		if (!Settings::Get().armUsesSelection) {
+			// VioLens decides: exactly what happens without this plugin - the game's killmove system and VioLens'
+			// own Customize Killmoves pick - only the blow is made lethal and the player block lifted for it
+			auto ctx = std::make_shared<AttackContext>();
+			ctx->victim = a_victim->GetHandle();
+			ctx->wc = WeaponClassOf(a_player);
+			ctx->liftedAll = true;
+			Catalog::Get().SetPlayerBlock(false);
+			if (auto avo = a_victim->AsActorValueOwner()) {
+				ctx->hp = avo->GetActorValue(RE::ActorValue::kHealth);
+				if (ctx->hp > 1.0f) {
+					avo->DamageActorValue(RE::ActorValue::kHealth, ctx->hp - 1.0f);
+				}
+			}
+			logger::info("Armed on {} - VioLens / the game picks the killmove", a_victim->GetDisplayFullName());
+			_armCtx = ctx;
+			_armedUntil = _clock + a_window;
+			return true;
+		}
 		std::vector<Finisher*> cands;
 		int                    wc = 0;
 		Category               cat = Category::kFront;
@@ -983,7 +1003,7 @@ namespace ED
 						RE::ConditionCheckParams params(a_player, a_victim);
 						bool ok = item->IsTrue(params);
 						conds += std::format(" [fn{} obj{} op{} {:.2f}{}{}]", static_cast<int>(item->data.functionData.function.get()),
-							static_cast<int>(item->data.object.get()), static_cast<int>(item->data.flags.opCode.get()), item->data.comparisonValue.f,
+							static_cast<int>(item->data.object.underlying()), static_cast<int>(item->data.flags.opCode), item->data.comparisonValue.f,
 							item->data.flags.isOR ? " OR" : "", ok ? " ok" : " FAIL");
 					}
 					const char* id = n->GetFormEditorID();
@@ -1007,6 +1027,9 @@ namespace ED
 		_armedUntil = -1.0f;
 		auto victim = ctx->victim.get();
 		ctx->strip.reset();  // conditions back as they were
+		if (ctx->liftedAll) {
+			Catalog::Get().SetPlayerBlock(true);
+		}
 		if (a_started) {
 			logger::info("  game killmove started");
 			_attempt = Attempt{};
@@ -1015,7 +1038,7 @@ namespace ED
 			_attempt.weaponClass = ctx->wc;
 			_attempt.prepped = true;
 			_attempt.engine = true;
-			_attempt.current = ctx->chosen.front();  // best guess: the game picked one of these
+			_attempt.current = ctx->chosen.empty() ? nullptr : ctx->chosen.front();  // best guess
 			return;
 		}
 		if (victim && !victim->IsDead() && ctx->hp > 1.0f) {

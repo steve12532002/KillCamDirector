@@ -51,6 +51,7 @@ namespace ED
 			s.directPlay = ini.GetBoolValue("General", "bDirectPlay2", s.directPlay);
 			s.armWindow = F(ini, "General", "fArmWindow", s.armWindow);
 			s.vioLensBase = ini.GetBoolValue("General", "bVioLensBase", s.vioLensBase);
+			s.armUsesSelection = ini.GetBoolValue("General", "bArmUsesSelection", s.armUsesSelection);
 			s.hitChance = F(ini, "HitTrigger", "fChance", s.hitChance);
 			s.markerR = static_cast<int>(ini.GetLongValue("Marker", "iRed", s.markerR));
 			s.markerG = static_cast<int>(ini.GetLongValue("Marker", "iGreen", s.markerG));
@@ -83,6 +84,7 @@ namespace ED
 		ini.SetBoolValue("General", "bDirectPlay2", directPlay);
 		ini.SetDoubleValue("General", "fArmWindow", armWindow);
 		ini.SetBoolValue("General", "bVioLensBase", vioLensBase);
+		ini.SetBoolValue("General", "bArmUsesSelection", armUsesSelection);
 		ini.SetDoubleValue("HitTrigger", "fChance", hitChance);
 		ini.SetLongValue("General", "iExecuteKey", static_cast<long>(executeKey));
 		ini.SetDoubleValue("General", "fHealthThreshold", healthThreshold);

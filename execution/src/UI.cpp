@@ -210,6 +210,7 @@ namespace ED::UI
 			ImGuiMCP::SeparatorText("How executions start");
 			if (Executor::Get().VioLensLoaded()) {
 				changed |= ImGuiMCP::Checkbox("VioLens is loaded: use it as the base (key arms your next attack, the game does the killmove)", &s.vioLensBase);
+				changed |= ImGuiMCP::Checkbox("Armed attack uses my Finishers picks (off = VioLens' own Customize Killmoves decides)", &s.armUsesSelection);
 			} else {
 				ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.7f, 0.4f, 1.0f }, "VioLens SE.esp is not loaded - finishers are played directly");
 			}

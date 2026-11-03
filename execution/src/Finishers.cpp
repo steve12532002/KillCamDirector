@@ -453,6 +453,14 @@ namespace ED
 		logger::info("Attached {} stand-alone finisher idles to the killmove tree", count);
 	}
 
+	void Catalog::SetPlayerBlock(bool a_on)
+	{
+		// GetIsID(player) != 1 blocks the player; != 2 is always true
+		for (auto item : _blockItems) {
+			item->data.comparisonValue.f = a_on ? 1.0f : 2.0f;
+		}
+	}
+
 	void Catalog::BlockPlayerRandom()
 	{
 		if (_blocked || !Settings::Get().blockRandomPlayerKillmoves) {
@@ -483,6 +491,7 @@ namespace ED
 				item->data.comparisonValue.f = 1.0f;
 				item->next = idle->conditions.head;
 				idle->conditions.head = item;
+				_blockItems.push_back(item);
 				++count;
 			}
 		}

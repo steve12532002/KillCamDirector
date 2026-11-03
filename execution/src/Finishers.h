@@ -95,7 +95,8 @@ namespace ED
 
 		void Build();             // scan every loaded IDLE form (call on kDataLoaded)
 		void BlockPlayerRandom();
-		void AttachOrphans();  // hang stand-alone killmove idles under the vanilla killmove root  // add "attacker is not the player" to killmove idles in the idle tree
+		void AttachOrphans();
+		void SetPlayerBlock(bool a_on);  // the "not the player" condition on every killmove: on = blocked  // hang stand-alone killmove idles under the vanilla killmove root  // add "attacker is not the player" to killmove idles in the idle tree
 		void LoadUser();
 		void SaveUser();
 
@@ -114,5 +115,6 @@ namespace ED
 		void           FromJson(const nlohmann::json& a_j, bool a_stats);
 		std::vector<Finisher> _list;
 		bool                  _blocked{ false };
+		std::vector<RE::TESConditionItem*> _blockItems;
 	};
 }
