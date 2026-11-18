@@ -75,3 +75,23 @@ target_precompile_headers(ExecutionDirector PRIVATE execution/src/PCH.h)
 if(MSVC)
 	target_compile_options(ExecutionDirector PRIVATE /utf-8 /Zc:preprocessor /EHsc /permissive-)
 endif()
+
+# ---------------------------------------------------------------- Zan (斬): hotkey executions through the game's own killmoves
+add_commonlibsse_plugin(
+	Zan
+	NAME "Zan"
+	AUTHOR "KillCamDirector"
+	SOURCES
+		zan/src/main.cpp
+		zan/src/Settings.cpp
+		zan/src/Core.cpp
+		zan/src/Input.cpp
+		zan/src/UI.cpp
+)
+target_include_directories(Zan PRIVATE zan/src include ${SIMPLEINI_INCLUDE_DIRS})
+target_compile_definitions(Zan PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+target_link_libraries(Zan PRIVATE minhook::minhook)
+target_precompile_headers(Zan PRIVATE zan/src/PCH.h)
+if(MSVC)
+	target_compile_options(Zan PRIVATE /utf-8 /Zc:preprocessor /EHsc /permissive-)
+endif()

@@ -1,0 +1,103 @@
+#pragma once
+
+namespace Zan
+{
+	enum Source : int
+	{
+		kVanilla = 0,
+		kLowBlow,
+		kThicc,
+		kSourceCount
+	};
+	const char* SourceName(int a_source);
+
+	// One killmove idle that sits in the game's idle tree
+	struct Killmove
+	{
+		RE::TESIdleForm*      idle{ nullptr };
+		RE::TESConditionItem* gate{ nullptr };  // our "not the player" item: closed unless this one was picked
+		std::string           event;
+		std::string           editorID;
+		std::string           file;
+		int                   source{ kVanilla };
+		int                   started{ 0 };
+		int                   missed{ 0 };
+	};
+
+	struct MarkerDraw
+	{
+		float x;
+		float y;
+	};
+
+	class Core
+	{
+	public:
+		static Core& Get()
+		{
+			static Core c;
+			return c;
+		}
+
+		static void InstallHooks();
+
+		void Build();  // after data load: find the killmoves, put the gates on them
+
+		void OnKey();  // execute key pressed
+		void Tick(RE::PlayerCharacter* a_player, float a_dt);
+		void UpdateMarkerScreen();
+		void OnPreLoad();
+
+		std::vector<MarkerDraw> Markers()
+		{
+			std::scoped_lock l(_markerLock);
+			return _markers;
+		}
+
+		const std::vector<Killmove>& All() const { return _all; }
+		std::array<int, kSourceCount> CountBySource() const;
+		const std::string&            LastResult() const { return _lastResult; }
+
+	private:
+		struct Mark
+		{
+			RE::ActorHandle handle;
+		};
+
+		struct Pending
+		{
+			bool            active{ false };
+			RE::ActorHandle victim;
+			Killmove*       pick{ nullptr };
+			float           hp{ 0.0f };
+			float           timer{ 0.0f };
+			bool            started{ false };
+			float           endTimer{ 0.0f };
+		};
+
+		Core() = default;
+
+		bool        IsExecutable(RE::PlayerCharacter* a_player, RE::Actor* a_actor) const;
+		RE::Actor*  PickVictim(RE::PlayerCharacter* a_player);
+		Killmove*   Choose(RE::PlayerCharacter* a_player, RE::Actor* a_victim);
+		void        Open(Killmove* a_km, bool a_open);
+		void        Finish(bool a_started);
+		void        UpdateMarks(RE::PlayerCharacter* a_player);
+		void        Dump(Killmove* a_km, RE::PlayerCharacter* a_player, RE::Actor* a_victim);
+
+		std::vector<Killmove>                         _all;
+		std::unordered_set<RE::TESIdleForm*>          _attackNodes;  // tree nodes that also lead to non-killmove idles
+		std::unordered_map<RE::FormID, Mark>          _marked;
+		float                                         _scan{ 0.0f };
+		float                                         _clock{ 0.0f };
+		Pending                                       _pending;
+		std::vector<std::pair<RE::TESConditionItem*, RE::TESConditionItem*>> _unlinked;  // (item, original next)
+		std::vector<std::pair<RE::TESIdleForm*, RE::TESConditionItem*>>      _heads;     // (node, original head)
+		std::deque<std::string>                       _recent;
+		std::mt19937                                  _rng{ std::random_device{}() };
+		std::string                                   _lastResult;
+		std::mutex                                    _markerLock;
+		std::vector<MarkerDraw>                       _markers;
+		int                                           _dumps{ 0 };
+	};
+}

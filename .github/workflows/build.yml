@@ -83,6 +83,11 @@ jobs:
           Copy-Item -Recurse -Force execution/dist/* $ed/
           Copy-Item build/ExecutionDirector.dll "$ed/SKSE/Plugins/"
           Copy-Item LICENSE "$ed/"
+          $zn = "$out/Zan"
+          New-Item -ItemType Directory -Force -Path "$zn/SKSE/Plugins" | Out-Null
+          Copy-Item -Recurse -Force zan/dist/* $zn/
+          Copy-Item build/Zan.dll "$zn/SKSE/Plugins/"
+          Copy-Item LICENSE "$zn/"
 
       - uses: actions/upload-artifact@v4
         with:
