@@ -1,13 +1,13 @@
 # KillCam Director
 
 SKSE plugin that films every killmove the player takes part in (as killer or victim) like a movie:
-camera angles that move and cut, adjustable letterbox bars, optional slow motion, hotkey on/off,
+camera angles that move and cut, adjustable letterbox bars, optional slow motion, on/off and presets from the SKSE Menu Framework page,
 and presets you can edit as text files. Works with any killmove mod because the camera follows the
 actors' real skeleton, not the animation's start point.
 
 ## 中文說明
 
-- **熱鍵**：`Insert` 開關、`Page Up` 切換 preset（可在 `KillCamDirector.ini` 改）。
+- **沒有熱鍵**：開關、preset 與所有調整都在 SKSE Menu Framework 的 KillCam Director 頁面。
 - **遊戲內設定**：裝了 SKSE Menu Framework 就會有「KillCam Director」頁面，可開關、選 preset、調黑邊、慢動作。黑邊需要 SKSE Menu Framework 才會顯示。
 - **Preset**：`SKSE/Plugins/KillCamDirector/Presets/*.ini`，每個檔案是一組鏡位（Shot1、Shot2…），數值說明寫在檔案註解裡，可以直接複製一份改。
 - **慢動作**：建議把 VioLens 的 Camera Setting 設成「3P SlowMo Off」，避免兩邊同時改時間速度。

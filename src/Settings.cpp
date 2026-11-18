@@ -39,8 +39,6 @@ namespace KCD
 		{
 			s.enabled = ini.GetBoolValue("General", "bEnabled", s.enabled);
 			s.preset = ini.GetValue("General", "sPreset", s.preset.c_str());
-			s.toggleKey = static_cast<std::uint32_t>(ini.GetLongValue("General", "iToggleKey", s.toggleKey));
-			s.nextPresetKey = static_cast<std::uint32_t>(ini.GetLongValue("General", "iNextPresetKey", s.nextPresetKey));
 			s.notifications = ini.GetBoolValue("General", "bNotifications", s.notifications);
 			s.forceThirdPerson = ini.GetBoolValue("General", "bForceThirdPerson", s.forceThirdPerson);
 			s.maxPartnerDistance = F(ini, "General", "fMaxPartnerDistance", s.maxPartnerDistance);

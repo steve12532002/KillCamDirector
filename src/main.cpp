@@ -1,7 +1,6 @@
 #include "PCH.h"
 
 #include "Director.h"
-#include "Input.h"
 #include "Settings.h"
 #include "UI.h"
 
@@ -25,7 +24,6 @@ namespace
 	void OnMessage(SKSE::MessagingInterface::Message* a_msg)
 	{
 		if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
-			KCD::Input::Install();
 			KCD::UI::Register();
 		}
 	}

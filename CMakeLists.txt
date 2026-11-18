@@ -33,7 +33,6 @@ set(SOURCES
 	src/main.cpp
 	src/Settings.cpp
 	src/Director.cpp
-	src/Input.cpp
 	src/UI.cpp
 )
 

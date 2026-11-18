@@ -11,7 +11,6 @@
 #include "SKSEMenuFramework.h"
 
 #include "Director.h"
-#include "Input.h"
 #include "Settings.h"
 #include "UI.h"
 
@@ -42,7 +41,7 @@ namespace KCD::UI
 			auto& s = Settings::Get();
 			bool  changed = false;
 
-			changed |= ImGuiMCP::Checkbox("Enabled (hotkey toggles too)", &s.enabled);
+			changed |= ImGuiMCP::Checkbox("Enabled", &s.enabled);
 
 			// preset picker
 			std::vector<std::string> names{ "Random" };

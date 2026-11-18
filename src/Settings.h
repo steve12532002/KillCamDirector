@@ -48,8 +48,6 @@ namespace KCD
 		// [General]
 		bool        enabled{ true };
 		std::string preset{ "Random" };  // preset name or "Random"
-		std::uint32_t toggleKey{ 0xD2 };      // Insert
-		std::uint32_t nextPresetKey{ 0xC9 };  // Page Up
 		bool        notifications{ true };
 		bool        forceThirdPerson{ true };
 		float       maxPartnerDistance{ 600.0f };
