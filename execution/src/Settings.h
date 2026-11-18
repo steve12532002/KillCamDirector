@@ -21,7 +21,7 @@ namespace ED
 		float         executeRange{ 280.0f };
 		float         executeCone{ 75.0f };  // degrees either side of where you face
 		float         markRange{ 3000.0f };
-		bool          blockRandomPlayerKillmoves{ false };
+		bool          blockRandomPlayerKillmoves{ true };
 		bool          humanoidOnly{ true };
 		bool          allowEssential{ false };
 		bool          ensureKill{ true };
@@ -51,9 +51,9 @@ namespace ED
 		bool verbose{ false };
 		bool cancelUnpaired{ false };
 		bool  engineKillmoves{ false };  // let the game start idle-tree killmoves (VioLens style)
-		bool  directPlay{ true };     // play the finisher directly on key press (false = arm the next attack, needs killmove trees)
+		bool  directPlay{ false };    // true = force-play a finisher on key press (often refused); false = arm the next attack, the game does it (VioLens-reliable)
 		float armWindow{ 3.0f };
-		bool  vioLensBase{ false };
+		bool  vioLensBase{ true };
 		bool  armUsesSelection{ false };
 		float exploreChance{ 0.25f };   // how often an untried finisher is put first  // armed attack: only my Finishers picks (true) or whatever VioLens picks (false)    // with VioLens SE.esp loaded: always arm and let the game do it      // seconds the execute key keeps the next attack armed
 		bool  hitTrigger{ false };    // automatic: attacks on a marked enemy execute without the key  // also execute when your hit drops an enemy below the threshold

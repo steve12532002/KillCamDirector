@@ -231,7 +231,7 @@ namespace ED::UI
 			if (s.hitTrigger) {
 				changed |= ImGuiMCP::SliderFloat("Automatic chance", &s.hitChance, 1.0f, 100.0f, "%.0f%%");
 			}
-			changed |= ImGuiMCP::Checkbox("Key plays the finisher at once (off = arm the next attack, VioLens style)", &s.directPlay);
+			changed |= ImGuiMCP::Checkbox("Force-play a finisher at once (off = arm the next attack - reliable, VioLens style)", &s.directPlay);
 			changed |= ImGuiMCP::Checkbox("Cancel at once when the enemy does not follow (turn off if you get stuck)", &s.cancelUnpaired);
 
 			ImGuiMCP::SeparatorText("Executable enemies");
