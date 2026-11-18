@@ -33,7 +33,9 @@ namespace Zan
 
 		void Notify(const char* a_msg)
 		{
-			RE::DebugNotification(a_msg);
+			using func_t = void (*)(const char*, const char*, bool);
+			static REL::Relocation<func_t> func{ RELOCATION_ID(52050, 52933) };
+			func(a_msg, nullptr, true);
 		}
 
 		RE::TESForm* PlayerBase()
