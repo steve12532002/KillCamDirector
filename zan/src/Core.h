@@ -20,6 +20,7 @@ namespace Zan
 		std::string           editorID;
 		std::string           file;
 		int                   source{ kVanilla };
+		RE::TESIdleForm*      top{ nullptr };   // highest node of its killmove branch (child of an attack-tree node)
 		int                   attack{ 0 };  // AttackKind: the attack whose branch of the tree leads to it
 		int                   started{ 0 };
 		int                   missed{ 0 };
@@ -116,6 +117,14 @@ namespace Zan
 		std::mutex                                    _markerLock;
 		std::vector<MarkerDraw>                       _markers;
 		int                                           _dumps{ 0 };
+		std::vector<RE::TESIdleForm*>                 _hosts;  // attack-tree nodes that hold killmove branches
+		struct SavedArray
+		{
+			void*         array;
+			RE::TESForm** data;
+			std::uint32_t capacity, freeIdx, size;
+		};
+		std::vector<SavedArray>                       _savedArrays;
 		std::array<int, kAttackKindCount>             _kindStarted{};
 		std::array<int, kAttackKindCount>             _kindMissed{};
 	};

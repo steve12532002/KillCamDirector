@@ -116,6 +116,18 @@ namespace Zan
 			return true;
 		}
 
+		// NiFormArray members are private in CommonLib; same layout as NiTLargeArray
+		struct RawFormArray
+		{
+			void*         vtbl;
+			RE::TESForm** data;
+			std::uint32_t capacity;
+			std::uint32_t freeIdx;
+			std::uint32_t size;
+			std::uint32_t growBy;
+		};
+		static_assert(sizeof(RawFormArray) == sizeof(RE::NiFormArray));
+
 		bool InPair(RE::Actor* a_actor)
 		{
 			if (!a_actor) {
@@ -289,6 +301,24 @@ namespace Zan
 			logger::info("{} bash / sprint / mounted killmoves left out", skipped);
 		}
 
+		// each killmove's branch top, and the attack-tree nodes holding branches (normal, power, left... attacks)
+		std::unordered_set<RE::TESIdleForm*> hosts;
+		for (auto& km : _all) {
+			int guard = 0;
+			auto n = km.idle;
+			while (n->parentIdle && !_attackNodes.contains(n->parentIdle) && guard++ < 32) {
+				n = n->parentIdle;
+			}
+			km.top = n;
+			if (n->parentIdle && n->parentIdle->childIdles) {
+				hosts.insert(n->parentIdle);
+			}
+		}
+		_hosts.assign(hosts.begin(), hosts.end());
+		for (auto h : _hosts) {
+			logger::info("  killmove host: {} ({:08X})", EditorID(h), h->GetFormID());
+		}
+
 		// the gate: GetIsID(player) != 1 - closed for the player, open for everyone else.
 		// Its value is set to 2 (always true) while that killmove is the one picked.
 		for (auto& km : _all) {
@@ -444,11 +474,8 @@ namespace Zan
 		bool leftOk = isWeapon(leftObj) || (!leftObj && !rightObj);
 		bool dualOk = isWeapon(leftObj) && isWeapon(rightObj);
 		for (auto& km : _all) {
+			// a left-hand branch needs a weapon (or fists) in the left hand - its own conditions look at it
 			if ((km.attack == kLeft || km.attack == kLeftPower) && !leftOk || km.attack == kDualPower && !dualOk) {
-				continue;
-			}
-			// an attack kind the game never accepted this session (e.g. power attacks under BFCO) is left out
-			if (_kindMissed[km.attack] >= 6 && _kindStarted[km.attack] == 0) {
 				continue;
 			}
 			// one that the game kept refusing this session is left out (unless it worked before)
@@ -504,6 +531,14 @@ namespace Zan
 	void Core::Open(Killmove* a_km, bool a_open)
 	{
 		if (!a_open) {
+			for (auto it = _savedArrays.rbegin(); it != _savedArrays.rend(); ++it) {
+				auto raw = static_cast<RawFormArray*>(it->array);
+				raw->data = it->data;  // the temporary buffer is not freed: something may still be iterating it
+				raw->capacity = it->capacity;
+				raw->freeIdx = it->freeIdx;
+				raw->size = it->size;
+			}
+			_savedArrays.clear();
 			for (auto it = _saved.rbegin(); it != _saved.rend(); ++it) {
 				std::memcpy(&it->first->data, it->second.data(), it->second.size());
 			}
@@ -520,7 +555,9 @@ namespace Zan
 		int guard = 0;
 		for (auto n = a_km->idle; n && guard < 32 && !_attackNodes.contains(n); n = n->parentIdle, ++guard) {
 			for (auto item = n->conditions.head; item; item = item->next) {
-				if (item == a_km->gate || !IsRandomGate(item)) {
+				bool attackCheck = IsAttackStateCheck(item) &&
+				                   item->data.functionData.function.get() != RE::FUNCTION_DATA::FunctionID::kShouldAttackKill;
+				if (item == a_km->gate || !IsRandomGate(item) && !attackCheck) {
 					continue;
 				}
 				std::array<std::byte, sizeof(RE::CONDITION_ITEM_DATA)> copy;
@@ -540,6 +577,33 @@ namespace Zan
 				item->data.flags.isOR = isOR;
 				item->data.comparisonValue.f = 2.0f;
 			}
+		}
+
+		// Put the branch first under every attack-tree host (normal, power, left...): whichever attack comes next -
+		// light or heavy, Zan's or the player's own - the game looks at this killmove before any attack or combo.
+		// Its other killmoves stay shut by their gates, so if it can't start the game just goes on to the attack.
+		for (auto host : _hosts) {
+			auto raw = reinterpret_cast<RawFormArray*>(host->childIdles);
+			if (!raw || !raw->data) {
+				continue;
+			}
+			std::uint32_t n = raw->size;
+			auto newData = static_cast<RE::TESForm**>(RE::NiMalloc(sizeof(RE::TESForm*) * (n + 1)));
+			if (!newData) {
+				continue;
+			}
+			_savedArrays.push_back({ raw, raw->data, raw->capacity, raw->freeIdx, raw->size });
+			std::uint32_t k = 0;
+			newData[k++] = a_km->top;
+			for (std::uint32_t i = 0; i < n; ++i) {
+				if (raw->data[i] != a_km->top) {
+					newData[k++] = raw->data[i];
+				}
+			}
+			raw->data = newData;
+			raw->capacity = n + 1;
+			raw->size = k;
+			raw->freeIdx = k;
 		}
 	}
 
@@ -625,7 +689,7 @@ namespace Zan
 			_pending.retry = 0.0f;
 			return;
 		}
-		_pending.sent = SendAttack(player, victim, km->attack);
+		_pending.sent = SendAttack(player, victim, kRight);  // any attack reaches the branch now: a light one is accepted most
 	}
 
 	void Core::ResetPlayer(RE::PlayerCharacter* a_player)
@@ -728,7 +792,7 @@ namespace Zan
 				_pending.retry += a_dt;
 				if (_pending.retry >= 0.1f) {
 					_pending.retry = 0.0f;
-					_pending.sent = SendAttack(a_player, victim.get(), _pending.pick ? _pending.pick->attack : kRight);
+					_pending.sent = SendAttack(a_player, victim.get(), kRight);
 					if (!_pending.sent && !_pending.reset) {
 						ResetPlayer(a_player);
 						_pending.reset = true;
