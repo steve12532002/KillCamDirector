@@ -447,6 +447,10 @@ namespace Zan
 			if ((km.attack == kLeft || km.attack == kLeftPower) && !leftOk || km.attack == kDualPower && !dualOk) {
 				continue;
 			}
+			// an attack kind the game never accepted this session (e.g. power attacks under BFCO) is left out
+			if (_kindMissed[km.attack] >= 6 && _kindStarted[km.attack] == 0) {
+				continue;
+			}
 			// one that the game kept refusing this session is left out (unless it worked before)
 			if (km.missed >= 3 && km.started == 0) {
 				continue;
@@ -607,7 +611,28 @@ namespace Zan
 		_pending.victim = victim->GetHandle();
 		_pending.pick = km;
 		_pending.hp = hp;
-		_pending.sent = !s.autoAttack || SendAttack(player, victim, km->attack);
+		if (!s.autoAttack) {
+			_pending.sent = true;
+			return;
+		}
+		// mid-swing or in a combo the game ignores the new attack or continues the combo instead of looking at the
+		// killmoves: cut the current animation first, then attack from a neutral stance on the next try (0.1 s)
+		auto state = player->AsActorState();
+		if (state && state->GetAttackState() != RE::ATTACK_STATE_ENUM::kNone) {
+			ResetPlayer(player);
+			_pending.reset = true;
+			_pending.sent = false;
+			_pending.retry = 0.0f;
+			return;
+		}
+		_pending.sent = SendAttack(player, victim, km->attack);
+	}
+
+	void Core::ResetPlayer(RE::PlayerCharacter* a_player)
+	{
+		static const RE::BSFixedString kEvent("IdleForceDefaultState");
+		bool ok = a_player->NotifyAnimationGraph(kEvent);
+		logger::info("  player was busy: animation reset {}", ok ? "done" : "refused");
 	}
 
 	bool Core::SendAttack(RE::PlayerCharacter* a_player, RE::Actor* a_victim, int a_kind)
@@ -646,6 +671,7 @@ namespace Zan
 			}
 			if (km) {
 				km->missed++;
+				_kindMissed[km->attack]++;
 				logger::info("  the game did not start {} ({} misses, attack {})", km->event, km->missed,
 					_pending.sent ? "was sent" : "never accepted");
 			}
@@ -678,6 +704,7 @@ namespace Zan
 				Open(nullptr, false);
 				if (auto km = _pending.pick) {
 					km->started++;
+					_kindStarted[km->attack]++;
 					_recent.push_back(km->event);
 					while (static_cast<int>(_recent.size()) > Settings::Get().noRepeat) {
 						_recent.pop_front();
@@ -702,6 +729,10 @@ namespace Zan
 				if (_pending.retry >= 0.1f) {
 					_pending.retry = 0.0f;
 					_pending.sent = SendAttack(a_player, victim.get(), _pending.pick ? _pending.pick->attack : kRight);
+					if (!_pending.sent && !_pending.reset) {
+						ResetPlayer(a_player);
+						_pending.reset = true;
+					}
 				}
 			}
 			if (_pending.timer > Settings::Get().window || !victim || victim->IsDead()) {

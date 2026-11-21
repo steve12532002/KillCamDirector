@@ -86,7 +86,8 @@ namespace Zan
 			float           endTimer{ 0.0f };
 			bool            sent{ false };    // the attack was accepted
 			float           retry{ 0.0f };
-			float           sentAt{ -1.0f };  // timer value when the attack was accepted
+			float           sentAt{ -1.0f };
+			bool            reset{ false };  // the player's current animation was cut to start a fresh attack  // timer value when the attack was accepted
 		};
 
 		Core() = default;
@@ -97,6 +98,7 @@ namespace Zan
 		void        Open(Killmove* a_km, bool a_open);
 		void        Finish(bool a_started);
 		void        UpdateMarks(RE::PlayerCharacter* a_player);
+		void        ResetPlayer(RE::PlayerCharacter* a_player);
 		bool        SendAttack(RE::PlayerCharacter* a_player, RE::Actor* a_victim, int a_kind);
 		void        Dump(Killmove* a_km, RE::PlayerCharacter* a_player, RE::Actor* a_victim);
 
@@ -114,5 +116,7 @@ namespace Zan
 		std::mutex                                    _markerLock;
 		std::vector<MarkerDraw>                       _markers;
 		int                                           _dumps{ 0 };
+		std::array<int, kAttackKindCount>             _kindStarted{};
+		std::array<int, kAttackKindCount>             _kindMissed{};
 	};
 }
