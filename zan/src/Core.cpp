@@ -461,7 +461,7 @@ namespace Zan
 
 	// ---------------------------------------------------------------- choosing
 
-	Killmove* Core::Choose(RE::PlayerCharacter* a_player, RE::Actor* a_victim)
+	Killmove* Core::Choose(RE::PlayerCharacter* a_player, RE::Actor* a_victim, std::initializer_list<int> a_kinds, bool a_log)
 	{
 		auto&                                         s = Settings::Get();
 		std::array<std::vector<Killmove*>, kSourceCount> pool;
@@ -474,6 +474,9 @@ namespace Zan
 		bool leftOk = isWeapon(leftObj) || (!leftObj && !rightObj);
 		bool dualOk = isWeapon(leftObj) && isWeapon(rightObj);
 		for (auto& km : _all) {
+			if (std::find(a_kinds.begin(), a_kinds.end(), km.attack) == a_kinds.end()) {
+				continue;
+			}
 			// a left-hand branch needs a weapon (or fists) in the left hand - its own conditions look at it
 			if ((km.attack == kLeft || km.attack == kLeftPower) && !leftOk || km.attack == kDualPower && !dualOk) {
 				continue;
@@ -499,9 +502,13 @@ namespace Zan
 				w.push_back(weights[i]);
 			}
 		}
-		logger::info("  usable now: {} vanilla, {} Low-blow, {} Thicc (of {} checked)", pool[kVanilla].size(), pool[kLowBlow].size(),
-			pool[kThicc].size(), checked);
+		static const char* kKindNames[kAttackKindCount] = { "light", "heavy", "left", "left heavy", "dual" };
+		logger::info("  {} attack: {} vanilla, {} Low-blow, {} Thicc usable (of {} checked)", kKindNames[*a_kinds.begin()],
+			pool[kVanilla].size(), pool[kLowBlow].size(), pool[kThicc].size(), checked);
 		if (sources.empty()) {
+			if (!a_log) {
+				return nullptr;
+			}
 			std::vector<std::pair<int, int>> top(failCount.begin(), failCount.end());
 			std::sort(top.begin(), top.end(), [](auto& a, auto& b) { return a.second > b.second; });
 			std::string t;
@@ -555,9 +562,7 @@ namespace Zan
 		int guard = 0;
 		for (auto n = a_km->idle; n && guard < 32 && !_attackNodes.contains(n); n = n->parentIdle, ++guard) {
 			for (auto item = n->conditions.head; item; item = item->next) {
-				bool attackCheck = IsAttackStateCheck(item) &&
-				                   item->data.functionData.function.get() != RE::FUNCTION_DATA::FunctionID::kShouldAttackKill;
-				if (item == a_km->gate || !IsRandomGate(item) && !attackCheck) {
+				if (item == a_km->gate || !IsRandomGate(item)) {
 					continue;
 				}
 				std::array<std::byte, sizeof(RE::CONDITION_ITEM_DATA)> copy;
@@ -579,32 +584,6 @@ namespace Zan
 			}
 		}
 
-		// Put the branch first under every attack-tree host (normal, power, left...): whichever attack comes next -
-		// light or heavy, Zan's or the player's own - the game looks at this killmove before any attack or combo.
-		// Its other killmoves stay shut by their gates, so if it can't start the game just goes on to the attack.
-		for (auto host : _hosts) {
-			auto raw = reinterpret_cast<RawFormArray*>(host->childIdles);
-			if (!raw || !raw->data) {
-				continue;
-			}
-			std::uint32_t n = raw->size;
-			auto newData = static_cast<RE::TESForm**>(RE::NiMalloc(sizeof(RE::TESForm*) * (n + 1)));
-			if (!newData) {
-				continue;
-			}
-			_savedArrays.push_back({ raw, raw->data, raw->capacity, raw->freeIdx, raw->size });
-			std::uint32_t k = 0;
-			newData[k++] = a_km->top;
-			for (std::uint32_t i = 0; i < n; ++i) {
-				if (raw->data[i] != a_km->top) {
-					newData[k++] = raw->data[i];
-				}
-			}
-			raw->data = newData;
-			raw->capacity = n + 1;
-			raw->size = k;
-			raw->freeIdx = k;
-		}
 	}
 
 	void Core::Dump(Killmove* a_km, RE::PlayerCharacter* a_player, RE::Actor* a_victim)
@@ -652,7 +631,20 @@ namespace Zan
 				avo->DamageActorValue(RE::ActorValue::kHealth, hp - 1.0f);
 			}
 		}
-		auto km = Choose(player, victim);
+		// one killmove per attack kind, all opened together: Zan's own swing (light) or the player's own light or
+		// heavy attack - whichever comes - finds one ready in its own branch of the tree
+		std::vector<Killmove*> picks;
+		auto light = Choose(player, victim, { kRight }, true);
+		if (light) {
+			picks.push_back(light);
+		}
+		if (auto heavy = Choose(player, victim, { kRightPower }, false)) {
+			picks.push_back(heavy);
+		}
+		if (auto left = Choose(player, victim, { kLeft, kLeftPower }, false)) {
+			picks.push_back(left);
+		}
+		auto km = light ? light : (picks.empty() ? nullptr : picks.front());
 		if (!km) {
 			if (hp > 1.0f) {
 				if (auto avo = victim->AsActorValueOwner()) {
@@ -662,8 +654,10 @@ namespace Zan
 			Notify("\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE7\x94\xA8\xE7\x9A\x84\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE4\xBD\x9C");  // 沒有可用的處決動作
 			return;
 		}
-		logger::info("  picked {} - {} ({})", SourceName(km->source), km->event, km->editorID);
-		Open(km, true);
+		for (auto p : picks) {
+			logger::info("  picked {} - {} ({})", SourceName(p->source), p->event, p->editorID);
+			Open(p, true);
+		}
 
 		// face the victim: the killmoves' angle checks look at it
 		auto pp = player->GetPosition();
@@ -674,6 +668,7 @@ namespace Zan
 		_pending.active = true;
 		_pending.victim = victim->GetHandle();
 		_pending.pick = km;
+		_pending.picks = picks;
 		_pending.hp = hp;
 		// Zan swings once (and tries twice more if the player is busy). Whether it takes or not, the killmove stays
 		// ready for the whole window, so the player's own next attack - light or heavy - can start it too.
@@ -720,7 +715,6 @@ namespace Zan
 			}
 			if (km) {
 				km->missed++;
-				_kindMissed[km->attack]++;
 				logger::info("  the game did not start {} ({} misses, attack {})", km->event, km->missed,
 					_pending.sent ? "was sent" : "never accepted");
 			}
@@ -751,16 +745,21 @@ namespace Zan
 				// the game took it: put every condition back at once
 				_pending.started = true;
 				Open(nullptr, false);
-				if (auto km = _pending.pick) {
-					km->started++;
-					_kindStarted[km->attack]++;
-					_recent.push_back(km->event);
-					while (static_cast<int>(_recent.size()) > Settings::Get().noRepeat) {
-						_recent.pop_front();
-					}
-					_lastResult = std::string(SourceName(km->source)) + ": " + km->event;
-					logger::info("  killmove started ({})", km->event);
+				// which of the open ones: a heavy attack reaches the heavy pick, otherwise it is the light one
+				Killmove* km = _pending.pick;
+				std::string all;
+				for (auto p : _pending.picks) {
+					all += (all.empty() ? "" : " / ") + p->event;
+					_recent.push_back(p->event);  // all of them count as just played: the next key draws fresh ones
 				}
+				while (static_cast<int>(_recent.size()) > Settings::Get().noRepeat + 2) {
+					_recent.pop_front();
+				}
+				if (km) {
+					km->started++;
+				}
+				_lastResult = "started (one of: " + all + ")";
+				logger::info("  killmove started (one of: {})", all);
 				return;
 			}
 			// the player's own attack: the attack state goes from "between attacks" to attacking after the key

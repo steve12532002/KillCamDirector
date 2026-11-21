@@ -80,7 +80,8 @@ namespace Zan
 		{
 			bool            active{ false };
 			RE::ActorHandle victim;
-			Killmove*       pick{ nullptr };
+			Killmove*       pick{ nullptr };     // the light-attack pick (the one Zan's own swing reaches)
+			std::vector<Killmove*> picks;        // one per attack kind: light, heavy, left... all open at once
 			float           hp{ 0.0f };
 			float           timer{ 0.0f };
 			bool            started{ false };
@@ -96,7 +97,7 @@ namespace Zan
 
 		bool        IsExecutable(RE::PlayerCharacter* a_player, RE::Actor* a_actor) const;
 		RE::Actor*  PickVictim(RE::PlayerCharacter* a_player);
-		Killmove*   Choose(RE::PlayerCharacter* a_player, RE::Actor* a_victim);
+		Killmove*   Choose(RE::PlayerCharacter* a_player, RE::Actor* a_victim, std::initializer_list<int> a_kinds, bool a_log);
 		void        Open(Killmove* a_km, bool a_open);
 		void        Finish(bool a_started);
 		void        UpdateMarks(RE::PlayerCharacter* a_player);
