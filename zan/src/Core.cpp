@@ -482,7 +482,7 @@ namespace Zan
 				continue;
 			}
 			// one that the game kept refusing this session is left out (unless it worked before)
-			if (km.missed >= 3 && km.started == 0) {
+			if (km.missed >= 5 && km.started == 0) {
 				continue;
 			}
 			++checked;
@@ -679,6 +679,31 @@ namespace Zan
 		}
 	}
 
+	void Core::SwapLight(RE::PlayerCharacter* a_player, RE::Actor* a_victim)
+	{
+		auto old = _pending.pick;
+		if (!old) {
+			return;
+		}
+		old->missed++;
+		_recent.push_back(old->event);  // steer the draw away from it
+		auto fresh = Choose(a_player, a_victim, { kRight }, false);
+		if (!fresh || fresh == old) {
+			return;
+		}
+		Open(nullptr, false);
+		for (auto& p : _pending.picks) {
+			if (p == old) {
+				p = fresh;
+			}
+		}
+		_pending.pick = fresh;
+		for (auto p : _pending.picks) {
+			Open(p, true);
+		}
+		logger::info("  refused - trying {} - {} instead", SourceName(fresh->source), fresh->event);
+	}
+
 	bool Core::SendAttack(RE::PlayerCharacter* a_player, RE::Actor* a_victim, int a_kind)
 	{
 		static const RE::DEFAULT_OBJECT kActions[kAttackKindCount] = { RE::DEFAULT_OBJECT::kActionRightAttack,
@@ -695,6 +720,14 @@ namespace Zan
 		action->target = RE::NiPointer<RE::TESObjectREFR>(a_victim);
 		action->action = attack;
 		bool ok = action->Process();  // not freed: the game may still use it while the attack runs
+		if (!ok) {
+			auto ps = a_player->AsActorState();
+			auto vs = a_victim->AsActorState();
+			logger::info("    (you: attack state {}, staggered {} | enemy: attack state {}, staggered {}, knock {}, distance {:.0f})",
+				ps ? static_cast<int>(ps->GetAttackState()) : -1, ps && ps->IsStaggered(), vs ? static_cast<int>(vs->GetAttackState()) : -1,
+				vs && vs->IsStaggered(), vs ? static_cast<int>(vs->GetKnockState()) : -1,
+				a_player->GetPosition().GetDistance(a_victim->GetPosition()));
+		}
 		logger::info("  {} {}{}", kNames[a_kind], ok ? "started" : "not accepted yet", a_player->IsInKillMove() ? " - killmove started" : "");
 		return ok;
 	}
@@ -781,10 +814,13 @@ namespace Zan
 				Finish(false);
 				return;
 			}
-			if (Settings::Get().autoAttack && !_pending.sent && _pending.tries > 0 && _pending.tries < 3 && victim) {
+			if (Settings::Get().autoAttack && !_pending.sent && _pending.tries > 0 && _pending.tries < 4 && victim) {
 				_pending.retry += a_dt;
-				if (_pending.retry >= 0.15f) {
+				if (_pending.retry >= 0.12f) {
 					_pending.retry = 0.0f;
+					// a refused swing usually means the game DID pick the killmove but could not start that pair
+					// (room, angle, the enemy's current move) - so the next try uses a different animation
+					SwapLight(a_player, victim.get());
 					_pending.sent = SendAttack(a_player, victim.get(), kRight);
 					_pending.tries = _pending.sent ? 0 : _pending.tries + 1;
 				}
