@@ -20,8 +20,19 @@ namespace Zan
 		std::string           editorID;
 		std::string           file;
 		int                   source{ kVanilla };
+		int                   attack{ 0 };  // AttackKind: the attack whose branch of the tree leads to it
 		int                   started{ 0 };
 		int                   missed{ 0 };
+	};
+
+	enum AttackKind : int
+	{
+		kRight = 0,
+		kRightPower,
+		kLeft,
+		kLeftPower,
+		kDualPower,
+		kAttackKindCount
 	};
 
 	struct MarkerDraw
@@ -73,6 +84,8 @@ namespace Zan
 			float           timer{ 0.0f };
 			bool            started{ false };
 			float           endTimer{ 0.0f };
+			bool            sent{ false };    // the attack was accepted
+			float           retry{ 0.0f };
 		};
 
 		Core() = default;
@@ -83,6 +96,7 @@ namespace Zan
 		void        Open(Killmove* a_km, bool a_open);
 		void        Finish(bool a_started);
 		void        UpdateMarks(RE::PlayerCharacter* a_player);
+		bool        SendAttack(RE::PlayerCharacter* a_player, RE::Actor* a_victim, int a_kind);
 		void        Dump(Killmove* a_km, RE::PlayerCharacter* a_player, RE::Actor* a_victim);
 
 		std::vector<Killmove>                         _all;

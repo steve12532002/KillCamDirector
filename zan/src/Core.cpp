@@ -56,33 +56,62 @@ namespace Zan
 			return fn == F::kGetIsID && a_item->data.functionData.params[0] == PlayerBase();
 		}
 
+		// conditions about the attack itself (attack state, power attack, "this blow kills"): they only become true
+		// once the attack Zan sends is running with the victim at 1 HP, so they are not checked in advance
+		bool IsAttackStateCheck(const RE::TESConditionItem* a_item)
+		{
+			using F = RE::FUNCTION_DATA::FunctionID;
+			switch (a_item->data.functionData.function.get()) {
+			case F::kShouldAttackKill:
+			case F::kGetAttackState:
+			case F::kIsAttacking:
+			case F::kIsPowerAttacking:
+			case F::kGetGraphVariableInt:
+				return true;
+			default:
+				return false;
+			}
+		}
+
 		// Evaluates an idle and its parents (player = subject, victim = target), skipping the random gates.
 		// OR items bind to their neighbours, AND separates groups - the same rule the game uses.
-		bool ConditionsPass(RE::TESIdleForm* a_idle, RE::Actor* a_subject, RE::Actor* a_target)
+		bool ConditionsPass(RE::TESIdleForm* a_idle, RE::Actor* a_subject, RE::Actor* a_target, int* a_failFn = nullptr)
 		{
+			int firstFail = -1;
 			int guard = 0;
 			for (auto i = a_idle; i && guard < 32; i = i->parentIdle, ++guard) {
 				bool groupOk = false;
 				bool groupHas = false;
 				for (auto item = i->conditions.head; item; item = item->next) {
 					bool ok = true;
-					if (!IsRandomGate(item)) {
+					if (!IsRandomGate(item) && !IsAttackStateCheck(item)) {
 						RE::ConditionCheckParams params(a_subject, a_target);
 						ok = item->IsTrue(params);
+					}
+					if (!ok && firstFail < 0) {
+						firstFail = static_cast<int>(item->data.functionData.function.get());
 					}
 					groupOk = groupOk || ok;
 					groupHas = true;
 					if (!item->data.flags.isOR) {
 						if (!groupOk) {
+							if (a_failFn) {
+								*a_failFn = firstFail;
+							}
 							return false;
 						}
 						groupOk = false;
 						groupHas = false;
+						firstFail = -1;
 					}
 				}
 				if (groupHas && !groupOk) {
+					if (a_failFn) {
+						*a_failFn = firstFail;
+					}
 					return false;
 				}
+				firstFail = -1;
 			}
 			return true;
 		}
@@ -202,7 +231,11 @@ namespace Zan
 			bool        killmove = !ev.empty() && evl.starts_with("pa_") &&
 			                (chain.find("killmove") != std::string::npos || evl.find("killmove") != std::string::npos);
 			if (!killmove) {
-				others.push_back(idle);
+				// a real idle outside every killmove branch (an attack, a bash...): its parents are attack-tree nodes.
+				// Event-less grouping nodes inside the killmove branches don't count.
+				if (!ev.empty() && chain.find("killmove") == std::string::npos) {
+					others.push_back(idle);
+				}
 				continue;
 			}
 			if (IsCreatureText(evl + " " + chain)) {
@@ -231,6 +264,31 @@ namespace Zan
 			}
 		}
 
+		// which attack leads to each one: from the attack-tree nodes above it
+		int skipped = 0;
+		for (auto it = _all.begin(); it != _all.end();) {
+			std::string up;
+			int         guard = 0;
+			for (auto n = it->idle->parentIdle; n && guard < 32; n = n->parentIdle, ++guard) {
+				if (_attackNodes.contains(n) || !n->parentIdle) {
+					up += Lower(EditorID(n)) + " ";
+				}
+			}
+			if (up.find("bash") != std::string::npos || up.find("sprint") != std::string::npos || up.find("mount") != std::string::npos && up.find("nonmount") == std::string::npos) {
+				it = _all.erase(it);
+				++skipped;
+				continue;
+			}
+			bool left = up.find("left") != std::string::npos;
+			bool power = up.find("power") != std::string::npos;
+			bool dual = up.find("dual") != std::string::npos;
+			it->attack = dual ? kDualPower : left ? (power ? kLeftPower : kLeft) : (power ? kRightPower : kRight);
+			++it;
+		}
+		if (skipped) {
+			logger::info("{} bash / sprint / mounted killmoves left out", skipped);
+		}
+
 		// the gate: GetIsID(player) != 1 - closed for the player, open for everyone else.
 		// Its value is set to 2 (always true) while that killmove is the one picked.
 		for (auto& km : _all) {
@@ -247,6 +305,12 @@ namespace Zan
 			km.gate = item;
 		}
 
+		int kinds[kAttackKindCount]{};
+		for (auto& km : _all) {
+			kinds[km.attack]++;
+		}
+		logger::info("By attack: {} normal, {} power, {} left, {} left power, {} dual power", kinds[kRight], kinds[kRightPower], kinds[kLeft],
+			kinds[kLeftPower], kinds[kDualPower]);
 		auto c = CountBySource();
 		logger::info("Found {} killmoves in the idle tree: {} vanilla / VioLens, {} Low-blow, {} Thicc Thighs ({} attack-tree nodes left alone)",
 			_all.size(), c[kVanilla], c[kLowBlow], c[kThicc], _attackNodes.size());
@@ -372,14 +436,27 @@ namespace Zan
 		auto&                                         s = Settings::Get();
 		std::array<std::vector<Killmove*>, kSourceCount> pool;
 		int                                           checked = 0;
+		std::map<int, int>                            failCount;  // condition function -> killmoves it stopped
+		// left-hand attacks only with a weapon in the left hand, or with both hands empty (fists)
+		auto isWeapon = [](RE::TESForm* f) { return f && f->IsWeapon(); };
+		auto rightObj = a_player->GetEquippedObject(false);
+		auto leftObj = a_player->GetEquippedObject(true);
+		bool leftOk = isWeapon(leftObj) || (!leftObj && !rightObj);
+		bool dualOk = isWeapon(leftObj) && isWeapon(rightObj);
 		for (auto& km : _all) {
+			if ((km.attack == kLeft || km.attack == kLeftPower) && !leftOk || km.attack == kDualPower && !dualOk) {
+				continue;
+			}
 			// one that the game kept refusing this session is left out (unless it worked before)
 			if (km.missed >= 3 && km.started == 0) {
 				continue;
 			}
 			++checked;
-			if (ConditionsPass(km.idle, a_player, a_victim)) {
+			int failFn = -1;
+			if (ConditionsPass(km.idle, a_player, a_victim, &failFn)) {
 				pool[km.source].push_back(&km);
+			} else {
+				failCount[failFn]++;
 			}
 		}
 		const int weights[kSourceCount] = { s.weightVanilla, s.weightLowBlow, s.weightThicc };
@@ -394,6 +471,13 @@ namespace Zan
 		logger::info("  usable now: {} vanilla, {} Low-blow, {} Thicc (of {} checked)", pool[kVanilla].size(), pool[kLowBlow].size(),
 			pool[kThicc].size(), checked);
 		if (sources.empty()) {
+			std::vector<std::pair<int, int>> top(failCount.begin(), failCount.end());
+			std::sort(top.begin(), top.end(), [](auto& a, auto& b) { return a.second > b.second; });
+			std::string t;
+			for (std::size_t i = 0; i < top.size() && i < 6; ++i) {
+				t += std::format(" fn{}x{}", top[i].first, top[i].second);
+			}
+			logger::info("  stopped by (condition function x killmoves):{}", t);
 			return nullptr;
 		}
 		// 1. the source, by weight - so Low-blow, Thicc and vanilla come up equally often however many each has
@@ -489,20 +573,8 @@ namespace Zan
 			return;
 		}
 		logger::info("Execute {}:", victim->GetDisplayFullName());
-		auto km = Choose(player, victim);
-		if (!km) {
-			Notify("\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE7\x94\xA8\xE7\x9A\x84\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE4\xBD\x9C");  // 沒有可用的處決動作
-			return;
-		}
-		logger::info("  picked {} - {} ({})", SourceName(km->source), km->event, km->editorID);
-
-		// face the victim: the killmoves' angle checks look at it
-		auto pp = player->GetPosition();
-		auto vp = victim->GetPosition();
-		player->SetHeading(std::atan2(vp.x - pp.x, vp.y - pp.y));
-
-		Open(km, true);
-		// the game only turns a blow into a killmove when it would kill
+		// the game only turns a blow into a killmove when it kills: the victim goes to 1 HP first
+		// (also before choosing - some killmove branches check "this blow kills")
 		float hp = 0.0f;
 		if (auto avo = victim->AsActorValueOwner()) {
 			hp = avo->GetActorValue(RE::ActorValue::kHealth);
@@ -510,30 +582,59 @@ namespace Zan
 				avo->DamageActorValue(RE::ActorValue::kHealth, hp - 1.0f);
 			}
 		}
+		auto km = Choose(player, victim);
+		if (!km) {
+			if (hp > 1.0f) {
+				if (auto avo = victim->AsActorValueOwner()) {
+					avo->RestoreActorValue(RE::ActorValue::kHealth, hp - 1.0f);
+				}
+			}
+			Notify("\xE6\xB2\x92\xE6\x9C\x89\xE5\x8F\xAF\xE7\x94\xA8\xE7\x9A\x84\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE4\xBD\x9C");  // 沒有可用的處決動作
+			return;
+		}
+		logger::info("  picked {} - {} ({})", SourceName(km->source), km->event, km->editorID);
+		Open(km, true);
+
+		// face the victim: the killmoves' angle checks look at it
+		auto pp = player->GetPosition();
+		auto vp = victim->GetPosition();
+		player->SetHeading(std::atan2(vp.x - pp.x, vp.y - pp.y));
+
 		_pending = Pending{};
 		_pending.active = true;
 		_pending.victim = victim->GetHandle();
 		_pending.pick = km;
 		_pending.hp = hp;
+		_pending.sent = !s.autoAttack || SendAttack(player, victim, km->attack);
+	}
 
-		if (s.autoAttack) {
-			auto dom = RE::BGSDefaultObjectManager::GetSingleton();
-			auto attack = dom ? dom->GetObject<RE::BGSAction>(RE::DEFAULT_OBJECT::kActionRightAttack) : nullptr;
-			if (auto action = attack ? RE::TESActionData::Create() : nullptr) {
-				action->source = RE::NiPointer<RE::TESObjectREFR>(player);
-				action->target = RE::NiPointer<RE::TESObjectREFR>(victim);
-				action->action = attack;
-				bool ok = action->Process();
-				logger::info("  attack {}{}", ok ? "started" : "not accepted", player->IsInKillMove() ? " - killmove started" : "");
-				// not freed: the game may still use it while the attack runs
-			}
+	bool Core::SendAttack(RE::PlayerCharacter* a_player, RE::Actor* a_victim, int a_kind)
+	{
+		static const RE::DEFAULT_OBJECT kActions[kAttackKindCount] = { RE::DEFAULT_OBJECT::kActionRightAttack,
+			RE::DEFAULT_OBJECT::kActionRightPowerAttack, RE::DEFAULT_OBJECT::kActionLeftAttack, RE::DEFAULT_OBJECT::kActionLeftPowerAttack,
+			RE::DEFAULT_OBJECT::kActionDualPowerAttack };
+		static const char* kNames[kAttackKindCount] = { "attack", "power attack", "left attack", "left power attack", "dual power attack" };
+		auto dom = RE::BGSDefaultObjectManager::GetSingleton();
+		auto attack = dom ? dom->GetObject<RE::BGSAction>(kActions[a_kind]) : nullptr;
+		auto action = attack ? RE::TESActionData::Create() : nullptr;
+		if (!action) {
+			return false;
 		}
+		action->source = RE::NiPointer<RE::TESObjectREFR>(a_player);
+		action->target = RE::NiPointer<RE::TESObjectREFR>(a_victim);
+		action->action = attack;
+		bool ok = action->Process();  // not freed: the game may still use it while the attack runs
+		logger::info("  {} {}{}", kNames[a_kind], ok ? "started" : "not accepted yet", a_player->IsInKillMove() ? " - killmove started" : "");
+		return ok;
 	}
 
 	void Core::Finish(bool a_started)
 	{
 		auto victim = _pending.victim.get();
 		auto km = _pending.pick;
+		if (!a_started && km) {
+			Dump(km, RE::PlayerCharacter::GetSingleton(), victim.get());  // still open, victim still at 1 HP
+		}
 		Open(nullptr, false);
 		if (!a_started) {
 			if (victim && !victim->IsDead() && _pending.hp > 1.0f) {
@@ -543,8 +644,8 @@ namespace Zan
 			}
 			if (km) {
 				km->missed++;
-				logger::info("  the game did not start {} ({} misses)", km->event, km->missed);
-				Dump(km, RE::PlayerCharacter::GetSingleton(), victim.get());
+				logger::info("  the game did not start {} ({} misses, attack {})", km->event, km->missed,
+					_pending.sent ? "was sent" : "never accepted");
 			}
 			_lastResult = km ? "did not start: " + km->event : "did not start";
 		}
@@ -583,6 +684,14 @@ namespace Zan
 					logger::info("  killmove started ({})", km->event);
 				}
 				return;
+			}
+			if (!_pending.sent && victim) {
+				// the player was still busy (mid-swing, recovering): try again every 0.1 s inside the window
+				_pending.retry += a_dt;
+				if (_pending.retry >= 0.1f) {
+					_pending.retry = 0.0f;
+					_pending.sent = SendAttack(a_player, victim.get(), _pending.pick ? _pending.pick->attack : kRight);
+				}
 			}
 			if (_pending.timer > Settings::Get().window || !victim || victim->IsDead()) {
 				Finish(false);
