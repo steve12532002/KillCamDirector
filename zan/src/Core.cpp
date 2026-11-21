@@ -500,40 +500,42 @@ namespace Zan
 	void Core::Open(Killmove* a_km, bool a_open)
 	{
 		if (!a_open) {
-			for (auto& [item, next] : _unlinked) {
-				item->next = next;
+			for (auto it = _saved.rbegin(); it != _saved.rend(); ++it) {
+				std::memcpy(&it->first->data, it->second.data(), it->second.size());
 			}
-			for (auto& [node, head] : _heads) {
-				node->conditions.head = head;
-			}
-			_unlinked.clear();
-			_heads.clear();
+			_saved.clear();
 			for (auto& km : _all) {
 				km.gate->data.comparisonValue.f = 1.0f;
 			}
 			return;
 		}
 		a_km->gate->data.comparisonValue.f = 2.0f;
+		// The random gates (chance, VioLens' mode / randomizer globals, "not the player") on the picked killmove's
+		// branch are turned into an always-true check - not removed: many sit in OR groups, and removing an OR
+		// partner can make the rest of its group fail (that is what stopped v1.1). Stops at the attack tree.
 		int guard = 0;
 		for (auto n = a_km->idle; n && guard < 32 && !_attackNodes.contains(n); n = n->parentIdle, ++guard) {
-			std::vector<RE::TESConditionItem*> items;
 			for (auto item = n->conditions.head; item; item = item->next) {
-				items.push_back(item);
-			}
-			_heads.emplace_back(n, n->conditions.head);
-			for (auto item : items) {
-				_unlinked.emplace_back(item, item->next);
-			}
-			RE::TESConditionItem*  newHead = nullptr;
-			RE::TESConditionItem** link = &newHead;
-			for (auto item : items) {
-				if (!IsRandomGate(item)) {
-					*link = item;
-					link = &item->next;
+				if (item == a_km->gate || !IsRandomGate(item)) {
+					continue;
 				}
+				std::array<std::byte, sizeof(RE::CONDITION_ITEM_DATA)> copy;
+				std::memcpy(copy.data(), &item->data, copy.size());
+				_saved.emplace_back(item, copy);
+				bool isOR = item->data.flags.isOR;
+				// GetIsID(player) != 2 - always true (GetIsID is 0 or 1)
+				item->data.functionData.function = RE::FUNCTION_DATA::FunctionID::kGetIsID;
+				item->data.functionData.params[0] = PlayerBase();
+				item->data.functionData.params[1] = nullptr;
+				item->data.object = RE::CONDITIONITEMOBJECT::kSelf;
+				item->data.flags.global = false;
+				item->data.flags.usesAliases = false;
+				item->data.flags.usePackData = false;
+				item->data.flags.swapTarget = false;
+				item->data.flags.opCode = RE::CONDITION_ITEM_DATA::OpCode::kNotEqualTo;
+				item->data.flags.isOR = isOR;
+				item->data.comparisonValue.f = 2.0f;
 			}
-			*link = nullptr;
-			n->conditions.head = newHead;
 		}
 	}
 
@@ -683,6 +685,15 @@ namespace Zan
 					_lastResult = std::string(SourceName(km->source)) + ": " + km->event;
 					logger::info("  killmove started ({})", km->event);
 				}
+				return;
+			}
+			if (_pending.sent && _pending.sentAt < 0.0f) {
+				_pending.sentAt = _pending.timer;
+			}
+			// the game decides at the start of the attack: no killmove a moment after the attack was accepted means
+			// none is coming - give the health back before the blow lands so it is not just a lethal normal hit
+			if (Settings::Get().autoAttack && _pending.sent && _pending.timer - _pending.sentAt > 0.2f) {
+				Finish(false);
 				return;
 			}
 			if (!_pending.sent && victim) {

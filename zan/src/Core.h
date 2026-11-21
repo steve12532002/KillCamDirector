@@ -86,6 +86,7 @@ namespace Zan
 			float           endTimer{ 0.0f };
 			bool            sent{ false };    // the attack was accepted
 			float           retry{ 0.0f };
+			float           sentAt{ -1.0f };  // timer value when the attack was accepted
 		};
 
 		Core() = default;
@@ -105,8 +106,8 @@ namespace Zan
 		float                                         _scan{ 0.0f };
 		float                                         _clock{ 0.0f };
 		Pending                                       _pending;
-		std::vector<std::pair<RE::TESConditionItem*, RE::TESConditionItem*>> _unlinked;  // (item, original next)
-		std::vector<std::pair<RE::TESIdleForm*, RE::TESConditionItem*>>      _heads;     // (node, original head)
+		// random gates made always-true while a killmove is open: (item, its original data)
+		std::vector<std::pair<RE::TESConditionItem*, std::array<std::byte, sizeof(RE::CONDITION_ITEM_DATA)>>> _saved;
 		std::deque<std::string>                       _recent;
 		std::mt19937                                  _rng{ std::random_device{}() };
 		std::string                                   _lastResult;
