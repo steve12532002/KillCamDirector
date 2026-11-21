@@ -17,7 +17,7 @@ namespace Zan
 		float         cone{ 70.0f };
 		bool          humanoidOnly{ true };
 		bool          autoAttack{ true };  // the key also swings at the target (off = key, then attack yourself)
-		float         window{ 1.5f };      // seconds the next attack stays an execution
+		float         window{ 2.5f };      // seconds the next attack stays an execution
 
 		// how often each source is chosen (relative); 0 = never
 		int weightVanilla{ 1 };

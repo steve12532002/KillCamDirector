@@ -675,28 +675,13 @@ namespace Zan
 		_pending.victim = victim->GetHandle();
 		_pending.pick = km;
 		_pending.hp = hp;
-		if (!s.autoAttack) {
-			_pending.sent = true;
-			return;
+		// Zan swings once (and tries twice more if the player is busy). Whether it takes or not, the killmove stays
+		// ready for the whole window, so the player's own next attack - light or heavy - can start it too.
+		// (v1.3/1.4 cut the running animation to force the swing: that jammed BFCO's attacks, so it is gone.)
+		if (s.autoAttack) {
+			_pending.sent = SendAttack(player, victim, kRight);
+			_pending.tries = _pending.sent ? 0 : 1;
 		}
-		// mid-swing or in a combo the game ignores the new attack or continues the combo instead of looking at the
-		// killmoves: cut the current animation first, then attack from a neutral stance on the next try (0.1 s)
-		auto state = player->AsActorState();
-		if (state && state->GetAttackState() != RE::ATTACK_STATE_ENUM::kNone) {
-			ResetPlayer(player);
-			_pending.reset = true;
-			_pending.sent = false;
-			_pending.retry = 0.0f;
-			return;
-		}
-		_pending.sent = SendAttack(player, victim, kRight);  // any attack reaches the branch now: a light one is accepted most
-	}
-
-	void Core::ResetPlayer(RE::PlayerCharacter* a_player)
-	{
-		static const RE::BSFixedString kEvent("IdleForceDefaultState");
-		bool ok = a_player->NotifyAnimationGraph(kEvent);
-		logger::info("  player was busy: animation reset {}", ok ? "done" : "refused");
 	}
 
 	bool Core::SendAttack(RE::PlayerCharacter* a_player, RE::Actor* a_victim, int a_kind)
@@ -778,25 +763,31 @@ namespace Zan
 				}
 				return;
 			}
+			// the player's own attack: the attack state goes from "between attacks" to attacking after the key
+			if (auto state = a_player->AsActorState()) {
+				bool attacking = state->GetAttackState() != RE::ATTACK_STATE_ENUM::kNone;
+				if (!attacking) {
+					_pending.idleSeen = true;
+				} else if (_pending.idleSeen && !_pending.sent) {
+					_pending.sent = true;
+					logger::info("  your own attack started");
+				}
+			}
 			if (_pending.sent && _pending.sentAt < 0.0f) {
 				_pending.sentAt = _pending.timer;
 			}
-			// the game decides at the start of the attack: no killmove a moment after the attack was accepted means
+			// the game decides at the start of the attack: no killmove a moment after the attack started means
 			// none is coming - give the health back before the blow lands so it is not just a lethal normal hit
-			if (Settings::Get().autoAttack && _pending.sent && _pending.timer - _pending.sentAt > 0.2f) {
+			if (_pending.sent && _pending.timer - _pending.sentAt > 0.2f) {
 				Finish(false);
 				return;
 			}
-			if (!_pending.sent && victim) {
-				// the player was still busy (mid-swing, recovering): try again every 0.1 s inside the window
+			if (Settings::Get().autoAttack && !_pending.sent && _pending.tries > 0 && _pending.tries < 3 && victim) {
 				_pending.retry += a_dt;
-				if (_pending.retry >= 0.1f) {
+				if (_pending.retry >= 0.15f) {
 					_pending.retry = 0.0f;
 					_pending.sent = SendAttack(a_player, victim.get(), kRight);
-					if (!_pending.sent && !_pending.reset) {
-						ResetPlayer(a_player);
-						_pending.reset = true;
-					}
+					_pending.tries = _pending.sent ? 0 : _pending.tries + 1;
 				}
 			}
 			if (_pending.timer > Settings::Get().window || !victim || victim->IsDead()) {
