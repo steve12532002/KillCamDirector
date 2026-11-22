@@ -1175,9 +1175,17 @@ namespace Zan
 				fresh.push_back(km);
 			}
 		}
-		auto&                                      from = fresh.empty() ? list : fresh;
-		std::uniform_int_distribution<std::size_t> pick(0, from.size() - 1);
-		return from[pick(_rng)];
+		auto& from = fresh.empty() ? list : fresh;
+		// one vote per ANIMATION, not per record: VioLens registers the same animation many times (per weapon,
+		// per mode, light/heavy copies), which would otherwise favour the most-copied animations
+		std::map<std::string, std::vector<Killmove*>> byEvent;
+		for (auto km : from) {
+			byEvent[km->event].push_back(km);
+		}
+		std::uniform_int_distribution<std::size_t> pickEvent(0, byEvent.size() - 1);
+		auto                                       it = std::next(byEvent.begin(), static_cast<std::ptrdiff_t>(pickEvent(_rng)));
+		std::uniform_int_distribution<std::size_t> pickRec(0, it->second.size() - 1);
+		return it->second[pickRec(_rng)];
 	}
 
 	bool Core::ForcePlay(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_anyHealth)
@@ -1203,10 +1211,6 @@ namespace Zan
 				break;
 			}
 			tried.push_back(km);
-			auto twin = Twin(km->idle);
-			if (!twin) {
-				break;
-			}
 			// face each other (or the victim away for back killmoves) - paired animations start from the attacker's facing
 			auto  pp = a_player->GetPosition();
 			auto  vp = a_victim->GetPosition();
@@ -1218,8 +1222,24 @@ namespace Zan
 			}
 			a_victim->SetHeading(vh);
 
-			bool ok = process->PlayIdle(a_player, twin, a_victim);
-			logger::info("  play {} - {} ({}) -> {}", SourceName(km->source), km->event, km->editorID, ok ? "accepted" : "REFUSED");
+			// exactly Kaputt's call (the player always started with it): the real idle-tree form first,
+			// a stand-alone copy without conditions only if that is refused
+			static const RE::BSFixedString kGetUpEnd("GetUpEnd");
+			if (auto st = a_victim->AsActorState();
+				st && (st->GetKnockState() == RE::KNOCK_STATE_ENUM::kGetUp || st->GetKnockState() == RE::KNOCK_STATE_ENUM::kQueued)) {
+				st->actorState1.knockState = RE::KNOCK_STATE_ENUM::kNormal;
+				a_victim->NotifyAnimationGraph(kGetUpEnd);
+			}
+			bool ok = process->SetupSpecialIdle(a_player, RE::DEFAULT_OBJECT::kActionIdle, km->idle, true, false, a_victim);
+			const char* how = "original";
+			if (!ok) {
+				if (auto twin = Twin(km->idle)) {
+					ok = process->SetupSpecialIdle(a_player, RE::DEFAULT_OBJECT::kActionIdle, twin, true, false, a_victim);
+					how = "copy";
+				}
+			}
+			logger::info("  play {} - {} ({}) -> {}{}", SourceName(km->source), km->event, km->editorID, ok ? "accepted as " : "REFUSED",
+				ok ? how : "");
 			if (ok) {
 				_force = Force{};
 				_force.active = true;

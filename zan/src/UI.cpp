@@ -15,6 +15,8 @@
 #include "Core.h"
 #include "Settings.h"
 
+#include <set>
+
 namespace Zan::UI
 {
 	namespace
@@ -224,7 +226,14 @@ namespace Zan::UI
 			ImGuiMCP::SeparatorText("Status");
 			auto& core = Core::Get();
 			auto  c = core.CountBySource();
-			ImGuiMCP::Text("Killmoves found: %d vanilla / VioLens, %d Low-blow, %d Thicc Thighs", c[kVanilla], c[kLowBlow], c[kThicc]);
+			{
+				std::set<std::string> ev[kSourceCount];
+				for (auto& km : core.All()) {
+					ev[km.source].insert(km.event);
+				}
+				ImGuiMCP::Text("Animations: %zu vanilla / VioLens, %zu Low-blow, %zu Thicc Thighs  (%d / %d / %d idle records)", ev[kVanilla].size(),
+					ev[kLowBlow].size(), ev[kThicc].size(), c[kVanilla], c[kLowBlow], c[kThicc]);
+			}
 			int started[kSourceCount]{}, missed[kSourceCount]{};
 			for (auto& km : core.All()) {
 				started[km.source] += km.started;
