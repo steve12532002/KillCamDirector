@@ -69,6 +69,11 @@ namespace Zan
 		const std::vector<Killmove>& All() const { return _all; }
 		std::array<int, kSourceCount> CountBySource() const;
 		const std::string&            LastResult() const { return _lastResult; }
+		const std::vector<Killmove*>& LastCandidates() const { return _lastCandidates; }
+		bool                          IsBlocked(const Killmove* a_km) const { return _blocked.contains(a_km->editorID); }
+		void                          Block(Killmove* a_km);
+		void                          ClearBlocked();
+		std::size_t                   BlockedCount() const { return _blocked.size(); }
 
 	private:
 		struct Mark
@@ -103,7 +108,6 @@ namespace Zan
 		void        Open(Killmove* a_km, bool a_open);
 		void        Finish(bool a_started);
 		void        UpdateMarks(RE::PlayerCharacter* a_player);
-		bool        CalmEnemy(RE::Actor* a_victim);
 		void        SwapLight(RE::PlayerCharacter* a_player, RE::Actor* a_victim);
 		bool        SendAttack(RE::PlayerCharacter* a_player, RE::Actor* a_victim, int a_kind);
 		void        Dump(Killmove* a_km, RE::PlayerCharacter* a_player, RE::Actor* a_victim);
@@ -119,6 +123,9 @@ namespace Zan
 		std::deque<std::string>                       _recent;
 		std::mt19937                                  _rng{ std::random_device{}() };
 		std::string                                   _lastResult;
+		std::vector<Killmove*>                        _lastCandidates;  // the animation(s) that just played
+		std::unordered_set<std::string>               _blocked;
+		bool                                          _swingStarted{ false };  // Zan's own swing started the pair
 		std::mutex                                    _markerLock;
 		std::vector<MarkerDraw>                       _markers;
 		int                                           _dumps{ 0 };

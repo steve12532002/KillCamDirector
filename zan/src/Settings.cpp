@@ -34,6 +34,7 @@ namespace Zan
 			s.weightLowBlow = static_cast<int>(ini.GetLongValue("Random", "iLowBlow", s.weightLowBlow));
 			s.weightThicc = static_cast<int>(ini.GetLongValue("Random", "iThicc", s.weightThicc));
 			s.noRepeat = static_cast<int>(ini.GetLongValue("Random", "iNoRepeat", s.noRepeat));
+			s.blocked = ini.GetValue("Random", "sBlocked", s.blocked.c_str());
 			s.markerEnabled = ini.GetBoolValue("Marker", "bEnabled", s.markerEnabled);
 			s.markerSize = F(ini, "Marker", "fSize", s.markerSize);
 			s.markerOffsetX = F(ini, "Marker", "fOffsetX", s.markerOffsetX);
@@ -70,6 +71,7 @@ namespace Zan
 		ini.SetLongValue("Random", "iLowBlow", weightLowBlow);
 		ini.SetLongValue("Random", "iThicc", weightThicc);
 		ini.SetLongValue("Random", "iNoRepeat", noRepeat);
+		ini.SetValue("Random", "sBlocked", blocked.c_str());
 		ini.SetBoolValue("Marker", "bEnabled", markerEnabled);
 		ini.SetDoubleValue("Marker", "fSize", markerSize);
 		ini.SetDoubleValue("Marker", "fOffsetX", markerOffsetX);

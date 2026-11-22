@@ -341,6 +341,18 @@ namespace Zan
 		}
 		logger::info("By attack: {} normal, {} power, {} left, {} left power, {} dual power", kinds[kRight], kinds[kRightPower], kinds[kLeft],
 			kinds[kLeftPower], kinds[kDualPower]);
+		{
+			std::string list = Settings::Get().blocked, item;
+			std::stringstream ss(list);
+			while (std::getline(ss, item, ',')) {
+				if (!item.empty()) {
+					_blocked.insert(item);
+				}
+			}
+			if (!_blocked.empty()) {
+				logger::info("{} animation(s) blocked by you", _blocked.size());
+			}
+		}
 		auto c = CountBySource();
 		logger::info("Found {} killmoves in the idle tree: {} vanilla / VioLens, {} Low-blow, {} Thicc Thighs ({} attack-tree nodes left alone)",
 			_all.size(), c[kVanilla], c[kLowBlow], c[kThicc], _attackNodes.size());
@@ -350,6 +362,24 @@ namespace Zan
 		if (c[kThicc] == 0) {
 			logger::info("  no Thicc Thighs killmoves in the tree - its VioLens version (SnuSnu-VioLensed.esp) puts them there");
 		}
+	}
+
+	void Core::Block(Killmove* a_km)
+	{
+		if (!a_km || !_blocked.insert(a_km->editorID).second) {
+			return;
+		}
+		auto& s = Settings::Get();
+		s.blocked += (s.blocked.empty() ? "" : ",") + a_km->editorID;
+		s.Save();
+		logger::info("Blocked {} ({})", a_km->editorID, a_km->event);
+	}
+
+	void Core::ClearBlocked()
+	{
+		_blocked.clear();
+		Settings::Get().blocked.clear();
+		Settings::Get().Save();
 	}
 
 	std::array<int, kSourceCount> Core::CountBySource() const
@@ -479,6 +509,9 @@ namespace Zan
 			}
 			// a left-hand branch needs a weapon (or fists) in the left hand - its own conditions look at it
 			if ((km.attack == kLeft || km.attack == kLeftPower) && !leftOk || km.attack == kDualPower && !dualOk) {
+				continue;
+			}
+			if (_blocked.contains(km.editorID)) {
 				continue;
 			}
 			// one that the game kept refusing this session is left out (unless it worked before)
@@ -622,6 +655,7 @@ namespace Zan
 			return;
 		}
 		logger::info("Execute {}:", victim->GetDisplayFullName());
+		_swingStarted = false;
 		// the game only turns a blow into a killmove when it kills: the victim goes to 1 HP first
 		// (also before choosing - some killmove branches check "this blow kills")
 		float hp = 0.0f;
@@ -674,32 +708,10 @@ namespace Zan
 		// ready for the whole window, so the player's own next attack - light or heavy - can start it too.
 		// (v1.3/1.4 cut the running animation to force the swing: that jammed BFCO's attacks, so it is gone.)
 		if (s.autoAttack) {
-			// v1.7 logs: nearly every refused swing came while the ENEMY was mid-attack - the game picks the
-			// killmove but the enemy can't be pulled into the pair (that is also the T-pose: the player starts
-			// alone). So an attacking enemy is stopped first and Zan swings on the next try.
-			if (CalmEnemy(victim)) {
-				_pending.tries = 1;
-				_pending.retry = 0.0f;
-				return;
-			}
 			_pending.sent = SendAttack(player, victim, kRight);
 			_pending.refusedIdle = !_pending.sent;
 			_pending.tries = _pending.sent ? 0 : 1;
 		}
-	}
-
-	bool Core::CalmEnemy(RE::Actor* a_victim)
-	{
-		auto vs = a_victim ? a_victim->AsActorState() : nullptr;
-		if (!vs || vs->GetAttackState() == RE::ATTACK_STATE_ENUM::kNone) {
-			return false;
-		}
-		static const RE::BSFixedString kStop("attackStop");
-		static const RE::BSFixedString kDefault("IdleForceDefaultState");
-		a_victim->NotifyAnimationGraph(kStop);
-		a_victim->NotifyAnimationGraph(kDefault);
-		logger::info("  enemy was attacking (state {}): stopped it", static_cast<int>(vs->GetAttackState()));
-		return true;
 	}
 
 	void Core::SwapLight(RE::PlayerCharacter* a_player, RE::Actor* a_victim)
@@ -743,6 +755,7 @@ namespace Zan
 		action->target = RE::NiPointer<RE::TESObjectREFR>(a_victim);
 		action->action = attack;
 		bool ok = action->Process();  // not freed: the game may still use it while the attack runs
+		_swingStarted = ok && a_player->IsInKillMove();
 		if (!ok) {
 			auto ps = a_player->AsActorState();
 			auto vs = a_victim->AsActorState();
@@ -801,8 +814,14 @@ namespace Zan
 				// the game took it: put every condition back at once
 				_pending.started = true;
 				Open(nullptr, false);
-				// which of the open ones: a heavy attack reaches the heavy pick, otherwise it is the light one
+				// which of the open ones played: Zan's swing reaches the light pick; the player's own attack - unknown
 				Killmove* km = _pending.pick;
+				_lastCandidates.clear();
+				if (_swingStarted && km) {
+					_lastCandidates.push_back(km);
+				} else {
+					_lastCandidates = _pending.picks;
+				}
 				std::string all;
 				for (auto p : _pending.picks) {
 					all += (all.empty() ? "" : " / ") + p->event;
@@ -814,8 +833,12 @@ namespace Zan
 				if (km) {
 					km->started++;
 				}
-				_lastResult = "started (one of: " + all + ")";
-				logger::info("  killmove started (one of: {})", all);
+				std::string played;
+				for (auto c : _lastCandidates) {
+					played += (played.empty() ? "" : " or ") + c->event + " [" + c->editorID + "]";
+				}
+				_lastResult = "started: " + played;
+				logger::info("  killmove started: {}", played);
 				return;
 			}
 			// the player's own attack: the attack state goes from "between attacks" to attacking after the key
@@ -837,22 +860,15 @@ namespace Zan
 				Finish(false);
 				return;
 			}
-			if (Settings::Get().autoAttack && !_pending.sent && _pending.tries > 0 && _pending.tries < 6 && victim) {
+			if (Settings::Get().autoAttack && !_pending.sent && _pending.tries > 0 && _pending.tries < 4 && victim) {
 				_pending.retry += a_dt;
 				if (_pending.retry >= 0.12f) {
 					_pending.retry = 0.0f;
-					// enemy still attacking: stop it and wait for the next try. Otherwise the refusal was about this
-					// animation (room, angle) - the next try uses a different one
-					if (CalmEnemy(victim.get())) {
-						_pending.tries++;
-					} else {
-						if (_pending.refusedIdle) {
-							SwapLight(a_player, victim.get());
-						}
-						_pending.sent = SendAttack(a_player, victim.get(), kRight);
-						_pending.refusedIdle = !_pending.sent;
-						_pending.tries = _pending.sent ? 0 : _pending.tries + 1;
-					}
+					// a refusal is about this animation (room, angle...) - the next try uses a different one.
+					// (v1.8 also stopped an attacking enemy first: that left enemies passive, so it is gone)
+					SwapLight(a_player, victim.get());
+					_pending.sent = SendAttack(a_player, victim.get(), kRight);
+					_pending.tries = _pending.sent ? 0 : _pending.tries + 1;
 				}
 			}
 			if (_pending.timer > Settings::Get().window || !victim || victim->IsDead()) {

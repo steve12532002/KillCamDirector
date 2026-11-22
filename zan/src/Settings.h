@@ -23,7 +23,8 @@ namespace Zan
 		int weightVanilla{ 1 };
 		int weightLowBlow{ 1 };
 		int weightThicc{ 1 };
-		int noRepeat{ 4 };  // the last N animations are skipped while others are available
+		int noRepeat{ 4 };
+		std::string blocked;  // editor IDs the player blocked (T-pose / broken), comma separated  // the last N animations are skipped while others are available
 
 		bool        markerEnabled{ true };
 		float       markerSize{ 26.0f };

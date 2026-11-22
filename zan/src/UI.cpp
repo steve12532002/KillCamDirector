@@ -212,7 +212,29 @@ namespace Zan::UI
 			for (int i = 0; i < kSourceCount; ++i) {
 				ImGuiMCP::Text("  %s: %d started, %d not started", SourceName(i), started[i], missed[i]);
 			}
-			ImGuiMCP::Text("Last: %s", core.LastResult().empty() ? "-" : core.LastResult().c_str());
+			ImGuiMCP::TextWrapped("Last: %s", core.LastResult().empty() ? "-" : core.LastResult().c_str());
+			// an animation that T-posed or looked broken can be taken out of the draw for good
+			int i = 0;
+			for (auto km : core.LastCandidates()) {
+				if (core.IsBlocked(km)) {
+					ImGuiMCP::TextDisabled("  %s - blocked", km->editorID.c_str());
+					continue;
+				}
+				char label[64];
+				std::snprintf(label, sizeof(label), "Block it (T-pose / broken)##b%d", i++);
+				if (ImGuiMCP::Button(label)) {
+					core.Block(km);
+				}
+				ImGuiMCP::SameLine();
+				ImGuiMCP::Text("%s  (%s)", km->event.c_str(), km->editorID.c_str());
+			}
+			if (core.BlockedCount() > 0) {
+				char label[64];
+				std::snprintf(label, sizeof(label), "Unblock all (%zu blocked)", core.BlockedCount());
+				if (ImGuiMCP::Button(label)) {
+					core.ClearBlocked();
+				}
+			}
 
 			if (changed) {
 				s.Save();
