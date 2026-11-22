@@ -334,6 +334,21 @@ namespace Zan
 			km.idle->conditions.head = item;
 			km.gate = item;
 		}
+		{
+			std::unordered_set<RE::TESConditionItem*> seen;
+			for (auto& km : _all) {
+				int guard = 0;
+				for (auto n = km.idle; n && guard < 32; n = n->parentIdle, ++guard) {
+					for (auto item = n->conditions.head; item; item = item->next) {
+						if (item->data.functionData.function.get() == RE::FUNCTION_DATA::FunctionID::kShouldAttackKill &&
+							seen.insert(item).second) {
+							_killChecks.push_back(item);
+						}
+					}
+				}
+			}
+			logger::info("{} \"this blow kills\" checks on the killmove branches", _killChecks.size());
+		}
 		ApplyMode();
 		logger::info("Pick mode: {}", Settings::Get().mode == 1 ? "Zan picks" : "VioLens picks");
 
@@ -411,8 +426,31 @@ namespace Zan
 				_vlLastEnemyOld = _vlLastEnemy->value;
 				_vlLastEnemy->value = 0.0f;
 			}
+			// the one thing that normally makes a blow a killmove: "this attack kills". Made always-true for the
+			// window instead of touching the enemy's health - the next attack becomes a killmove whatever its HP
+			for (auto item : _killChecks) {
+				std::array<std::byte, sizeof(RE::CONDITION_ITEM_DATA)> copy;
+				std::memcpy(copy.data(), &item->data, copy.size());
+				_killSaved.emplace_back(item, copy);
+				bool isOR = item->data.flags.isOR;
+				item->data.functionData.function = RE::FUNCTION_DATA::FunctionID::kGetIsID;
+				item->data.functionData.params[0] = PlayerBase();
+				item->data.functionData.params[1] = nullptr;
+				item->data.object = RE::CONDITIONITEMOBJECT::kSelf;
+				item->data.flags.global = false;
+				item->data.flags.usesAliases = false;
+				item->data.flags.usePackData = false;
+				item->data.flags.swapTarget = false;
+				item->data.flags.opCode = RE::CONDITION_ITEM_DATA::OpCode::kNotEqualTo;
+				item->data.flags.isOR = isOR;
+				item->data.comparisonValue.f = 2.0f;
+			}
 			_vlSet = true;
 		} else if (!a_set && _vlSet) {
+			for (auto it = _killSaved.rbegin(); it != _killSaved.rend(); ++it) {
+				std::memcpy(&it->first->data, it->second.data(), it->second.size());
+			}
+			_killSaved.clear();
 			if (_vlChance) {
 				_vlChance->value = _vlChanceOld;
 			}
@@ -698,16 +736,17 @@ namespace Zan
 		// the game only turns a blow into a killmove when it kills: the victim goes to 1 HP first
 		// (also before choosing - some killmove branches check "this blow kills")
 		float hp = 0.0f;
-		if (auto avo = victim->AsActorValueOwner()) {
+		if (auto avo = s.mode == 1 ? victim->AsActorValueOwner() : nullptr) {
 			hp = avo->GetActorValue(RE::ActorValue::kHealth);
 			if (hp > 1.0f) {
 				avo->DamageActorValue(RE::ActorValue::kHealth, hp - 1.0f);
 			}
 		}
 		if (s.mode == 0) {
-			// VioLens picks: nothing in the idle tree is touched. The victim is at 1 HP and VioLens' chance is
-			// 100% (last-enemy rule off) for this window - the player's next attack is a killing blow and the
-			// game + VioLens start a killmove exactly like they do without Zan
+			// VioLens picks: the enemy's health is not touched. For the window, VioLens' chance is 100%, its
+			// last-enemy rule is off and "this blow kills" counts as true - the player's next attack that the game
+			// can turn into a killmove becomes one, picked by VioLens/the game exactly as without Zan. Once the
+			// pair is over Zan makes sure the enemy is really dead.
 			VioLensGlobals(true);
 			logger::info("  ready (VioLens picks){}", _vlChance ? "" : " - VioLens chance global not found");
 			auto pp = player->GetPosition();
@@ -935,9 +974,19 @@ namespace Zan
 			}
 			// the game decides at the start of the attack: no killmove a moment after the attack started means
 			// none is coming - give the health back before the blow lands so it is not just a lethal normal hit
-			if (_pending.sent && _pending.timer - _pending.sentAt > 0.2f) {
+			if (Settings::Get().mode == 1 && _pending.sent && _pending.timer - _pending.sentAt > 0.2f) {
 				Finish(false);
 				return;
+			}
+			// VioLens picks: the attack is over (back between attacks) without a killmove - give up
+			if (Settings::Get().mode == 0 && _pending.sent && _pending.timer - _pending.sentAt > 0.15f) {
+				auto st = a_player->AsActorState();
+				if (!st || st->GetAttackState() == RE::ATTACK_STATE_ENUM::kNone) {
+					logger::info("  the attack ended without a killmove");
+					_lastResult = "no killmove on that attack";
+					Finish(false);
+					return;
+				}
 			}
 			if (_pending.timer > Settings::Get().window || !victim || victim->IsDead()) {
 				Finish(false);
@@ -963,7 +1012,7 @@ namespace Zan
 			return;
 		}
 		_pending.endTimer += a_dt;
-		if (_pending.endTimer < 0.4f) {
+		if (_pending.endTimer < 0.1f) {
 			return;
 		}
 		if (victim && !victim->IsDead()) {

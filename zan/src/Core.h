@@ -132,6 +132,8 @@ namespace Zan
 		RE::TESGlobal*                                _vlLastEnemy{ nullptr };
 		float                                         _vlChanceOld{ 0.0f }, _vlLastEnemyOld{ 0.0f };
 		bool                                          _vlSet{ false };
+		std::vector<RE::TESConditionItem*>            _killChecks;  // "ShouldAttackKill" items on the killmove branches
+		std::vector<std::pair<RE::TESConditionItem*, std::array<std::byte, sizeof(RE::CONDITION_ITEM_DATA)>>> _killSaved;
 		void                                          VioLensGlobals(bool a_set);
 	public:
 		void                                          ApplyMode();  // opens / closes the gates for the pick mode
