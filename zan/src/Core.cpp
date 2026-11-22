@@ -334,6 +334,8 @@ namespace Zan
 			km.idle->conditions.head = item;
 			km.gate = item;
 		}
+		ApplyMode();
+		logger::info("Pick mode: {}", Settings::Get().mode == 1 ? "Zan picks" : "VioLens picks");
 
 		int kinds[kAttackKindCount]{};
 		for (auto& km : _all) {
@@ -380,6 +382,45 @@ namespace Zan
 		_blocked.clear();
 		Settings::Get().blocked.clear();
 		Settings::Get().Save();
+	}
+
+	// VioLens mode: every gate open (2) - the player's killmoves work exactly as without Zan.
+	// Zan mode: every gate closed (1) except the picked ones while a key press is pending.
+	void Core::ApplyMode()
+	{
+		float v = Settings::Get().mode == 1 ? 1.0f : 2.0f;
+		for (auto& km : _all) {
+			if (km.gate) {
+				km.gate->data.comparisonValue.f = v;
+			}
+		}
+	}
+
+	void Core::VioLensGlobals(bool a_set)
+	{
+		if (a_set && !_vlSet) {
+			if (!_vlChance) {
+				_vlChance = RE::TESForm::LookupByEditorID<RE::TESGlobal>("VL_KillmoveChance");
+				_vlLastEnemy = RE::TESForm::LookupByEditorID<RE::TESGlobal>("VL_LastEnemyRestriction");
+			}
+			if (_vlChance) {
+				_vlChanceOld = _vlChance->value;
+				_vlChance->value = 100.0f;
+			}
+			if (_vlLastEnemy) {
+				_vlLastEnemyOld = _vlLastEnemy->value;
+				_vlLastEnemy->value = 0.0f;
+			}
+			_vlSet = true;
+		} else if (!a_set && _vlSet) {
+			if (_vlChance) {
+				_vlChance->value = _vlChanceOld;
+			}
+			if (_vlLastEnemy) {
+				_vlLastEnemy->value = _vlLastEnemyOld;
+			}
+			_vlSet = false;
+		}
 	}
 
 	std::array<int, kSourceCount> Core::CountBySource() const
@@ -583,9 +624,7 @@ namespace Zan
 				std::memcpy(&it->first->data, it->second.data(), it->second.size());
 			}
 			_saved.clear();
-			for (auto& km : _all) {
-				km.gate->data.comparisonValue.f = 1.0f;
-			}
+			ApplyMode();
 			return;
 		}
 		a_km->gate->data.comparisonValue.f = 2.0f;
@@ -665,8 +704,23 @@ namespace Zan
 				avo->DamageActorValue(RE::ActorValue::kHealth, hp - 1.0f);
 			}
 		}
-		// one killmove per attack kind, all opened together: Zan's own swing (light) or the player's own light or
-		// heavy attack - whichever comes - finds one ready in its own branch of the tree
+		if (s.mode == 0) {
+			// VioLens picks: nothing in the idle tree is touched. The victim is at 1 HP and VioLens' chance is
+			// 100% (last-enemy rule off) for this window - the player's next attack is a killing blow and the
+			// game + VioLens start a killmove exactly like they do without Zan
+			VioLensGlobals(true);
+			logger::info("  ready (VioLens picks){}", _vlChance ? "" : " - VioLens chance global not found");
+			auto pp = player->GetPosition();
+			auto vp = victim->GetPosition();
+			player->SetHeading(std::atan2(vp.x - pp.x, vp.y - pp.y));
+			_pending = Pending{};
+			_pending.active = true;
+			_pending.victim = victim->GetHandle();
+			_pending.hp = hp;
+			return;
+		}
+		// one killmove per attack kind, all opened together: the player's own light or heavy attack - whichever
+		// comes - finds one ready in its own branch of the tree
 		std::vector<Killmove*> picks;
 		auto light = Choose(player, victim, { kRight }, true);
 		if (light) {
@@ -780,6 +834,7 @@ namespace Zan
 
 	void Core::Finish(bool a_started)
 	{
+		VioLensGlobals(false);
 		if (_pending.click == 1) {
 			MouseLeft(false);
 		}
@@ -826,6 +881,13 @@ namespace Zan
 			if (a_player->IsInKillMove()) {
 				// the game took it: put every condition back at once
 				_pending.started = true;
+				VioLensGlobals(false);
+				if (!_pending.pick) {
+					_lastCandidates.clear();
+					_lastResult = "started (VioLens picked)";
+					logger::info("  killmove started (VioLens picked)");
+					return;
+				}
 				if (_pending.click == 1) {
 					MouseLeft(false);
 					_pending.click = 2;
@@ -876,24 +938,6 @@ namespace Zan
 			if (_pending.sent && _pending.timer - _pending.sentAt > 0.2f) {
 				Finish(false);
 				return;
-			}
-			// "Key also swings": a real left click (light attack), pressed once the player is between attacks -
-			// a click mid-swing would only queue the next combo hit
-			if (Settings::Get().autoAttack && !_pending.sent) {
-				auto st = a_player->AsActorState();
-				bool idle = !st || st->GetAttackState() == RE::ATTACK_STATE_ENUM::kNone;
-				if (_pending.click == 0 && idle) {
-					MouseLeft(true);
-					_pending.click = 1;
-					_pending.clickTimer = 0.0f;
-					logger::info("  swing (left click)");
-				} else if (_pending.click == 1) {
-					_pending.clickTimer += a_dt;
-					if (_pending.clickTimer >= 0.05f) {  // short press = light attack
-						MouseLeft(false);
-						_pending.click = 2;
-					}
-				}
 			}
 			if (_pending.timer > Settings::Get().window || !victim || victim->IsDead()) {
 				Finish(false);

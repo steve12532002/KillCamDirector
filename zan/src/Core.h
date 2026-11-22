@@ -127,7 +127,15 @@ namespace Zan
 		std::string                                   _lastResult;
 		std::vector<Killmove*>                        _lastCandidates;  // the animation(s) that just played
 		std::unordered_set<std::string>               _blocked;
-		bool                                          _swingStarted{ false };  // Zan's own swing started the pair
+		bool                                          _swingStarted{ false };
+		RE::TESGlobal*                                _vlChance{ nullptr };
+		RE::TESGlobal*                                _vlLastEnemy{ nullptr };
+		float                                         _vlChanceOld{ 0.0f }, _vlLastEnemyOld{ 0.0f };
+		bool                                          _vlSet{ false };
+		void                                          VioLensGlobals(bool a_set);
+	public:
+		void                                          ApplyMode();  // opens / closes the gates for the pick mode
+	private:  // Zan's own swing started the pair
 		std::mutex                                    _markerLock;
 		std::vector<MarkerDraw>                       _markers;
 		int                                           _dumps{ 0 };

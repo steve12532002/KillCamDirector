@@ -176,7 +176,19 @@ namespace Zan::UI
 			changed |= ImGuiMCP::SliderFloat("Range", &s.range, 120.0f, 500.0f, "%.0f units");
 			changed |= ImGuiMCP::SliderFloat("Aim cone", &s.cone, 20.0f, 180.0f, "%.0f deg");
 			changed |= ImGuiMCP::Checkbox("Humanoid enemies only", &s.humanoidOnly);
-			changed |= ImGuiMCP::Checkbox("Key also swings - presses a light attack (left click) for you (off = press the key, then attack yourself)", &s.autoAttack);
+			ImGuiMCP::Text("Who picks the animation:");
+			if (ImGuiMCP::RadioButton("VioLens (most reliable)", s.mode == 0)) {
+				s.mode = 0;
+				Core::Get().ApplyMode();
+				changed = true;
+			}
+			ImGuiMCP::SameLine();
+			if (ImGuiMCP::RadioButton("Zan (even mix, no repeats - less reliable)", s.mode == 1)) {
+				s.mode = 1;
+				Core::Get().ApplyMode();
+				changed = true;
+			}
+			ImGuiMCP::TextWrapped("Press the key, then attack (light or heavy) within the window.");
 			changed |= ImGuiMCP::SliderFloat("Execution window", &s.window, 0.5f, 5.0f, "%.1f s");
 			ImGuiMCP::TextWrapped(
 				"The key picks one killmove the game can play on that enemy right now and opens only that one; "

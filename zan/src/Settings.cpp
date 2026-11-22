@@ -28,7 +28,7 @@ namespace Zan
 			s.range = F(ini, "General", "fRange", s.range);
 			s.cone = F(ini, "General", "fCone", s.cone);
 			s.humanoidOnly = ini.GetBoolValue("General", "bHumanoidOnly", s.humanoidOnly);
-			s.autoAttack = ini.GetBoolValue("General", "bAutoAttack", s.autoAttack);
+			s.mode = static_cast<int>(ini.GetLongValue("General", "iPickMode", s.mode));
 			s.window = F(ini, "General", "fWindow", s.window);
 			s.weightVanilla = static_cast<int>(ini.GetLongValue("Random", "iVanilla", s.weightVanilla));
 			s.weightLowBlow = static_cast<int>(ini.GetLongValue("Random", "iLowBlow", s.weightLowBlow));
@@ -65,7 +65,7 @@ namespace Zan
 		ini.SetDoubleValue("General", "fRange", range);
 		ini.SetDoubleValue("General", "fCone", cone);
 		ini.SetBoolValue("General", "bHumanoidOnly", humanoidOnly);
-		ini.SetBoolValue("General", "bAutoAttack", autoAttack);
+		ini.SetLongValue("General", "iPickMode", mode);
 		ini.SetDoubleValue("General", "fWindow", window);
 		ini.SetLongValue("Random", "iVanilla", weightVanilla);
 		ini.SetLongValue("Random", "iLowBlow", weightLowBlow);
