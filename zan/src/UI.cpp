@@ -176,7 +176,7 @@ namespace Zan::UI
 			changed |= ImGuiMCP::SliderFloat("Range", &s.range, 120.0f, 500.0f, "%.0f units");
 			changed |= ImGuiMCP::SliderFloat("Aim cone", &s.cone, 20.0f, 180.0f, "%.0f deg");
 			changed |= ImGuiMCP::Checkbox("Humanoid enemies only", &s.humanoidOnly);
-			changed |= ImGuiMCP::Checkbox("Key also swings (off = press the key, then attack yourself)", &s.autoAttack);
+			changed |= ImGuiMCP::Checkbox("Key also swings - presses a light attack (left click) for you (off = press the key, then attack yourself)", &s.autoAttack);
 			changed |= ImGuiMCP::SliderFloat("Execution window", &s.window, 0.5f, 5.0f, "%.1f s");
 			ImGuiMCP::TextWrapped(
 				"The key picks one killmove the game can play on that enemy right now and opens only that one; "

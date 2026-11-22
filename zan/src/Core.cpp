@@ -707,10 +707,20 @@ namespace Zan
 		// Zan swings once (and tries twice more if the player is busy). Whether it takes or not, the killmove stays
 		// ready for the whole window, so the player's own next attack - light or heavy - can start it too.
 		// (v1.3/1.4 cut the running animation to force the swing: that jammed BFCO's attacks, so it is gone.)
-		if (s.autoAttack) {
-			_pending.sent = SendAttack(player, victim, kRight);
-			_pending.refusedIdle = !_pending.sent;
-			_pending.tries = _pending.sent ? 0 : 1;
+		// v2.0: no synthetic attack action any more. With one-handed weapons the game refused nearly every one
+		// (and some T-posed), while the same killmoves started fine from a real attack (VioLens alone works).
+		// So the key only arms: the next real attack - the player's, or the click Zan presses for them - goes
+		// through BFCO and the game exactly like a normal one, and starts the killmove.
+	}
+
+	namespace
+	{
+		void MouseLeft(bool a_down)
+		{
+			INPUT in{};
+			in.type = INPUT_MOUSE;
+			in.mi.dwFlags = a_down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+			::SendInput(1, &in, sizeof(INPUT));
 		}
 	}
 
@@ -770,6 +780,9 @@ namespace Zan
 
 	void Core::Finish(bool a_started)
 	{
+		if (_pending.click == 1) {
+			MouseLeft(false);
+		}
 		auto victim = _pending.victim.get();
 		auto km = _pending.pick;
 		if (!a_started && km) {
@@ -813,6 +826,10 @@ namespace Zan
 			if (a_player->IsInKillMove()) {
 				// the game took it: put every condition back at once
 				_pending.started = true;
+				if (_pending.click == 1) {
+					MouseLeft(false);
+					_pending.click = 2;
+				}
 				Open(nullptr, false);
 				// which of the open ones played: Zan's swing reaches the light pick; the player's own attack - unknown
 				Killmove* km = _pending.pick;
@@ -860,15 +877,22 @@ namespace Zan
 				Finish(false);
 				return;
 			}
-			if (Settings::Get().autoAttack && !_pending.sent && _pending.tries > 0 && _pending.tries < 4 && victim) {
-				_pending.retry += a_dt;
-				if (_pending.retry >= 0.12f) {
-					_pending.retry = 0.0f;
-					// a refusal is about this animation (room, angle...) - the next try uses a different one.
-					// (v1.8 also stopped an attacking enemy first: that left enemies passive, so it is gone)
-					SwapLight(a_player, victim.get());
-					_pending.sent = SendAttack(a_player, victim.get(), kRight);
-					_pending.tries = _pending.sent ? 0 : _pending.tries + 1;
+			// "Key also swings": a real left click (light attack), pressed once the player is between attacks -
+			// a click mid-swing would only queue the next combo hit
+			if (Settings::Get().autoAttack && !_pending.sent) {
+				auto st = a_player->AsActorState();
+				bool idle = !st || st->GetAttackState() == RE::ATTACK_STATE_ENUM::kNone;
+				if (_pending.click == 0 && idle) {
+					MouseLeft(true);
+					_pending.click = 1;
+					_pending.clickTimer = 0.0f;
+					logger::info("  swing (left click)");
+				} else if (_pending.click == 1) {
+					_pending.clickTimer += a_dt;
+					if (_pending.clickTimer >= 0.05f) {  // short press = light attack
+						MouseLeft(false);
+						_pending.click = 2;
+					}
 				}
 			}
 			if (_pending.timer > Settings::Get().window || !victim || victim->IsDead()) {

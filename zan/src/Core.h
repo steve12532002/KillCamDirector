@@ -97,7 +97,9 @@ namespace Zan
 			int             tries{ 0 };          // attacks Zan sent that the game did not take
 			bool            idleSeen{ false };
 			float           lonely{ 0.0f };
-			bool            refusedIdle{ false };  // last swing was refused with the enemy not attacking      // time the player has been in the pair without the enemy   // the player was between attacks at some point since the key  // timer value when the attack was accepted
+			bool            refusedIdle{ false };
+			int             click{ 0 };          // 0 = not yet, 1 = button down, 2 = done
+			float           clickTimer{ 0.0f };  // last swing was refused with the enemy not attacking      // time the player has been in the pair without the enemy   // the player was between attacks at some point since the key  // timer value when the attack was accepted
 		};
 
 		Core() = default;
