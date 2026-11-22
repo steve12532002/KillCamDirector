@@ -17,7 +17,7 @@ namespace Zan
 		float         cone{ 70.0f };
 		bool          humanoidOnly{ true };
 		bool          autoAttack{ false };  // unused since v3.0 (synthetic swings were refused / T-posed)
-		int           mode{ 0 };            // 0 = VioLens picks the killmove (reliable), 1 = Zan picks (even mix, no repeats)
+		int           mode{ 2 };            // 0 = VioLens picks on the next attack, 1 = Zan picks on the next attack, 2 = direct play
 		float         window{ 2.5f };      // seconds the next attack stays an execution
 
 		// how often each source is chosen (relative); 0 = never

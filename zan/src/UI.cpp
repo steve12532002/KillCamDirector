@@ -188,7 +188,16 @@ namespace Zan::UI
 				Core::Get().ApplyMode();
 				changed = true;
 			}
-			ImGuiMCP::TextWrapped("Press the key, then attack (light or heavy) within the window.");
+			if (ImGuiMCP::RadioButton("Direct play (no attack needed - experimental)", s.mode == 2)) {
+				s.mode = 2;
+				Core::Get().ApplyMode();
+				changed = true;
+			}
+			ImGuiMCP::TextWrapped(s.mode == 2 ? "Press the key: the killmove plays at once; the enemy dies when it ends." :
+			                                    "Press the key, then attack (light or heavy) within the window.");
+			if (ImGuiMCP::Button("Test: force a killmove on the nearest enemy (any health)")) {
+				Core::Get().ForceTest();
+			}
 			changed |= ImGuiMCP::SliderFloat("Execution window", &s.window, 0.5f, 5.0f, "%.1f s");
 			ImGuiMCP::TextWrapped(
 				"The key picks one killmove the game can play on that enemy right now and opens only that one; "

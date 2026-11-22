@@ -57,6 +57,7 @@ namespace Zan
 
 		void OnKey();  // execute key pressed
 		void Tick(RE::PlayerCharacter* a_player, float a_dt);
+		void ForceTest();  // settings-page button: force a killmove on the nearest enemy (any health)
 		void UpdateMarkerScreen();
 		void OnPreLoad();
 
@@ -137,7 +138,24 @@ namespace Zan
 		void                                          VioLensGlobals(bool a_set);
 	public:
 		void                                          ApplyMode();  // opens / closes the gates for the pick mode
-	private:  // Zan's own swing started the pair
+	private:
+		// ---- direct play (pick mode 2): the key plays a paired killmove at once, no attack needed
+		struct Force
+		{
+			bool            active{ false };
+			RE::ActorHandle victim;
+			Killmove*       km{ nullptr };
+			float           timer{ 0.0f };
+			bool            playerIn{ false };
+			bool            victimIn{ false };
+			float           endTimer{ 0.0f };
+		};
+		Force                                         _force;
+		std::unordered_map<RE::TESIdleForm*, RE::TESIdleForm*> _twins;
+		RE::TESIdleForm*                              Twin(RE::TESIdleForm* a_idle);
+		bool                                          ForcePlay(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_anyHealth);
+		void                                          ForceTick(RE::PlayerCharacter* a_player, float a_dt);
+		Killmove*                                     ChooseForce(RE::PlayerCharacter* a_player, RE::Actor* a_victim, std::vector<Killmove*>& a_tried);
 		std::mutex                                    _markerLock;
 		std::vector<MarkerDraw>                       _markers;
 		int                                           _dumps{ 0 };

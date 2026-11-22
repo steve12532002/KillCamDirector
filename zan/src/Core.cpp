@@ -723,7 +723,7 @@ namespace Zan
 	{
 		auto& s = Settings::Get();
 		auto  player = RE::PlayerCharacter::GetSingleton();
-		if (!s.enabled || !player || _pending.active || InPair(player)) {
+		if (!s.enabled || !player || _pending.active || _force.active || InPair(player)) {
 			return;
 		}
 		auto victim = PickVictim(player);
@@ -733,6 +733,10 @@ namespace Zan
 		}
 		logger::info("Execute {}:", victim->GetDisplayFullName());
 		_swingStarted = false;
+		if (s.mode == 2) {
+			ForcePlay(player, victim, false);
+			return;
+		}
 		// the game only turns a blow into a killmove when it kills: the victim goes to 1 HP first
 		// (also before choosing - some killmove branches check "this blow kills")
 		float hp = 0.0f;
@@ -911,6 +915,10 @@ namespace Zan
 				_marked.clear();
 			}
 		}
+		if (_force.active) {
+			ForceTick(a_player, a_dt);
+			return;
+		}
 		if (!_pending.active) {
 			return;
 		}
@@ -1021,11 +1029,308 @@ namespace Zan
 		_pending = Pending{};
 	}
 
+	// ---------------------------------------------------------------- direct play (mode 2)
+
+	// A stand-alone copy of a tree killmove: same animation, no parent and no conditions, so nothing in the
+	// idle tree (VioLens' globals, chance, attack state...) can refuse it.
+	RE::TESIdleForm* Core::Twin(RE::TESIdleForm* a_idle)
+	{
+		if (auto it = _twins.find(a_idle); it != _twins.end()) {
+			return it->second;
+		}
+		auto factory = RE::IFormFactory::GetConcreteFormFactoryByType<RE::TESIdleForm>();
+		auto clone = factory ? factory->Create() : nullptr;
+		if (!clone) {
+			return nullptr;
+		}
+		clone->data = a_idle->data;
+		clone->data.flags = RE::IDLE_DATA::Flag::kNone;
+		clone->conditions.head = nullptr;
+		clone->childIdles = nullptr;
+		clone->parentIdle = nullptr;
+		clone->prevIdle = nullptr;
+		clone->animFileName = a_idle->animFileName;
+		clone->animEventName = a_idle->animEventName;
+		_twins[a_idle] = clone;
+		return clone;
+	}
+
+	namespace
+	{
+		// Direct play only has to respect what the animation is FOR: the weapon in hand, the victim's race / sex /
+		// keywords, sneaking. Angles and attack state are made true by turning both actors and playing at once.
+		bool ForceRelevant(const RE::TESConditionItem* a_item)
+		{
+			using F = RE::FUNCTION_DATA::FunctionID;
+			switch (a_item->data.functionData.function.get()) {
+			case F::kGetEquippedItemType:
+			case F::kGetIsRace:
+			case F::kGetIsSex:
+			case F::kHasKeyword:
+			case F::kWornHasKeyword:
+			case F::kIsSneaking:
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		bool ForcePass(RE::TESIdleForm* a_idle, RE::Actor* a_subject, RE::Actor* a_target)
+		{
+			int guard = 0;
+			for (auto i = a_idle; i && guard < 32; i = i->parentIdle, ++guard) {
+				bool groupOk = false;
+				bool groupHas = false;
+				for (auto item = i->conditions.head; item; item = item->next) {
+					bool ok = true;
+					if (ForceRelevant(item)) {
+						RE::ConditionCheckParams params(a_subject, a_target);
+						ok = item->IsTrue(params);
+					}
+					groupOk = groupOk || ok;
+					groupHas = true;
+					if (!item->data.flags.isOR) {
+						if (!groupOk) {
+							return false;
+						}
+						groupOk = false;
+						groupHas = false;
+					}
+				}
+				if (groupHas && !groupOk) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		bool IsBackKill(const Killmove& a_km)
+		{
+			std::string t;
+			int         guard = 0;
+			for (auto n = a_km.idle; n && guard < 32; n = n->parentIdle, ++guard) {
+				if (auto id = n->GetFormEditorID()) {
+					t += id;
+				}
+			}
+			std::transform(t.begin(), t.end(), t.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return t.find("back") != std::string::npos || t.find("behind") != std::string::npos;
+		}
+
+		bool IsSneakKill(const Killmove& a_km)
+		{
+			int guard = 0;
+			for (auto n = a_km.idle; n && guard < 32; n = n->parentIdle, ++guard) {
+				if (auto id = n->GetFormEditorID()) {
+					std::string t = id;
+					std::transform(t.begin(), t.end(), t.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+					if (t.find("sneak") != std::string::npos) {
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+	}
+
+	Killmove* Core::ChooseForce(RE::PlayerCharacter* a_player, RE::Actor* a_victim, std::vector<Killmove*>& a_tried)
+	{
+		auto&                                            s = Settings::Get();
+		std::array<std::vector<Killmove*>, kSourceCount> pool;
+		bool sneaking = a_player->IsSneaking();
+		for (auto& km : _all) {
+			if (km.attack != kRight && km.attack != kRightPower) {
+				continue;  // left-hand / dual branches need a matching left hand: skipped in direct play
+			}
+			if (_blocked.contains(km.editorID) || (km.missed >= 3 && km.started == 0) ||
+				std::find(a_tried.begin(), a_tried.end(), &km) != a_tried.end()) {
+				continue;
+			}
+			if (IsSneakKill(km) != sneaking && IsSneakKill(km)) {
+				continue;
+			}
+			if (ForcePass(km.idle, a_player, a_victim)) {
+				pool[km.source].push_back(&km);
+			}
+		}
+		const int        weights[kSourceCount] = { s.weightVanilla, s.weightLowBlow, s.weightThicc };
+		std::vector<int> sources, w;
+		for (int i = 0; i < kSourceCount; ++i) {
+			if (!pool[i].empty() && weights[i] > 0) {
+				sources.push_back(i);
+				w.push_back(weights[i]);
+			}
+		}
+		if (a_tried.empty()) {
+			logger::info("  usable: {} vanilla, {} Low-blow, {} Thicc", pool[kVanilla].size(), pool[kLowBlow].size(), pool[kThicc].size());
+		}
+		if (sources.empty()) {
+			return nullptr;
+		}
+		std::discrete_distribution<int> pickSource(w.begin(), w.end());
+		auto&                           list = pool[sources[pickSource(_rng)]];
+		std::vector<Killmove*>          fresh;
+		for (auto km : list) {
+			if (std::find(_recent.begin(), _recent.end(), km->event) == _recent.end()) {
+				fresh.push_back(km);
+			}
+		}
+		auto&                                      from = fresh.empty() ? list : fresh;
+		std::uniform_int_distribution<std::size_t> pick(0, from.size() - 1);
+		return from[pick(_rng)];
+	}
+
+	bool Core::ForcePlay(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_anyHealth)
+	{
+		(void)a_anyHealth;
+		auto process = a_player->GetActorRuntimeData().currentProcess;
+		if (!process) {
+			return false;
+		}
+		// both sides free: stop attacks / staggers / blocks (no "IdleForceDefaultState" - it jammed BFCO)
+		static const RE::BSFixedString kAttackStop("attackStop");
+		static const RE::BSFixedString kStaggerStop("staggerStop");
+		static const RE::BSFixedString kBlockStop("blockStop");
+		a_player->NotifyAnimationGraph(kAttackStop);
+		a_victim->NotifyAnimationGraph(kAttackStop);
+		a_victim->NotifyAnimationGraph(kStaggerStop);
+		a_victim->NotifyAnimationGraph(kBlockStop);
+
+		std::vector<Killmove*> tried;
+		for (int attempt = 0; attempt < 4; ++attempt) {
+			auto km = ChooseForce(a_player, a_victim, tried);
+			if (!km) {
+				break;
+			}
+			tried.push_back(km);
+			auto twin = Twin(km->idle);
+			if (!twin) {
+				break;
+			}
+			// face each other (or the victim away for back killmoves) - paired animations start from the attacker's facing
+			auto  pp = a_player->GetPosition();
+			auto  vp = a_victim->GetPosition();
+			float toVictim = std::atan2(vp.x - pp.x, vp.y - pp.y);
+			a_player->SetHeading(toVictim);
+			float vh = IsBackKill(*km) ? toVictim : toVictim + RE::NI_PI;
+			if (vh > RE::NI_PI) {
+				vh -= RE::NI_TWO_PI;
+			}
+			a_victim->SetHeading(vh);
+
+			bool ok = process->PlayIdle(a_player, twin, a_victim);
+			logger::info("  play {} - {} ({}) -> {}", SourceName(km->source), km->event, km->editorID, ok ? "accepted" : "REFUSED");
+			if (ok) {
+				_force = Force{};
+				_force.active = true;
+				_force.victim = a_victim->GetHandle();
+				_force.km = km;
+				_lastCandidates = { km };
+				_lastResult = std::string(SourceName(km->source)) + ": " + km->event + " [" + km->editorID + "]";
+				return true;
+			}
+			km->missed++;
+		}
+		_lastResult = "direct play refused";
+		Notify("\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");  // 處決動畫啟動失敗
+		return false;
+	}
+
+	void Core::ForceTick(RE::PlayerCharacter* a_player, float a_dt)
+	{
+		auto victim = _force.victim.get();
+		_force.timer += a_dt;
+		bool pIn = InPair(a_player);
+		bool vIn = victim && InPair(victim.get());
+		if (pIn && !_force.playerIn) {
+			_force.playerIn = true;
+			logger::info("  player in the pair after {:.2f}s", _force.timer);
+		}
+		if (vIn && !_force.victimIn) {
+			_force.victimIn = true;
+			logger::info("  enemy joined the pair after {:.2f}s", _force.timer);
+			if (_force.km) {
+				_force.km->started++;
+				_recent.push_back(_force.km->event);
+				while (static_cast<int>(_recent.size()) > Settings::Get().noRepeat) {
+					_recent.pop_front();
+				}
+			}
+		}
+		// never started at all
+		if (!_force.playerIn && _force.timer > 0.6f) {
+			logger::info("  accepted but the player never entered the pair");
+			if (_force.km) {
+				_force.km->missed++;
+			}
+			_lastResult += " - did not start";
+			_force = Force{};
+			return;
+		}
+		// the player plays it alone (T-pose risk): stop after 0.5 s
+		if (_force.playerIn && !_force.victimIn && _force.timer > 0.5f) {
+			logger::info("  the ENEMY DID NOT JOIN - stopping the player's half");
+			static const RE::BSFixedString kDefault("IdleForceDefaultState");
+			a_player->NotifyAnimationGraph(kDefault);
+			if (_force.km) {
+				_force.km->missed++;
+			}
+			_lastResult += " - enemy did not join";
+			_force = Force{};
+			return;
+		}
+		// over: make sure the enemy really dies
+		if (pIn || vIn || !_force.victimIn) {
+			_force.endTimer = 0.0f;
+			return;
+		}
+		_force.endTimer += a_dt;
+		if (_force.endTimer < 0.1f) {
+			return;
+		}
+		if (victim && !victim->IsDead()) {
+			victim->KillImpl(a_player, 0.0f, true, true);
+			logger::info("  pair over - enemy killed");
+		} else {
+			logger::info("  pair over - enemy already dead");
+		}
+		_force = Force{};
+	}
+
+	void Core::ForceTest()
+	{
+		auto player = RE::PlayerCharacter::GetSingleton();
+		if (!player || _force.active || _pending.active || InPair(player)) {
+			return;
+		}
+		RE::Actor* best = nullptr;
+		float      bestD = 400.0f;
+		if (auto pl = RE::ProcessLists::GetSingleton()) {
+			pl->ForEachHighActor([&](RE::Actor* a) {
+				if (a && !a->IsDead() && a != player && a->Is3DLoaded() && !InPair(a) && a->IsHostileToActor(player)) {
+					float d = a->GetPosition().GetDistance(player->GetPosition());
+					if (d < bestD) {
+						bestD = d;
+						best = a;
+					}
+				}
+				return RE::BSContainer::ForEachResult::kContinue;
+			});
+		}
+		if (!best) {
+			Notify("\xE9\x99\x84\xE8\xBF\x91\xE6\xB2\x92\xE6\x9C\x89\xE6\x95\xB5\xE4\xBA\xBA");  // 附近沒有敵人
+			return;
+		}
+		logger::info("Test on {}:", best->GetDisplayFullName());
+		ForcePlay(player, best, true);
+	}
+
 	void Core::OnPreLoad()
 	{
 		if (_pending.active) {
 			Finish(_pending.started);
 		}
+		_force = Force{};
 		_marked.clear();
 	}
 }
