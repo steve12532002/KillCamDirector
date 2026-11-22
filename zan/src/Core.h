@@ -149,8 +149,16 @@ namespace Zan
 			bool            playerIn{ false };
 			bool            victimIn{ false };
 			float           endTimer{ 0.0f };
+			// still trying to start it (the game refuses while either side is busy for a moment)
+			bool                   trying{ false };
+			std::vector<Killmove*> order;
+			std::size_t            index{ 0 };
+			float                  tryTimer{ 0.0f };   // since the key
+			float                  animTimer{ 0.0f };  // on the current animation
+			int                    refusals{ 0 };
 		};
 		Force                                         _force;
+		bool                                          TryStart(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_log);
 		std::unordered_map<RE::TESIdleForm*, RE::TESIdleForm*> _twins;
 		RE::TESIdleForm*                              Twin(RE::TESIdleForm* a_idle);
 		bool                                          ForcePlay(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_anyHealth);

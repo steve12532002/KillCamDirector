@@ -1164,22 +1164,22 @@ namespace Zan
 			if (IsSneakKill(km) && !sneaking) {
 				continue;
 			}
-			auto [ok, refused] = _learn[{ a_weaponKey, km.event }];
-			if (ok == 0 && refused >= 2) {
-				++bad;
-				continue;
-			}
+			// (v3.4 dropped animations the game had refused - wrong: a refusal is about the moment, not the
+			// animation; the same one is refused while someone is busy and accepted a second later)
 			if (!ForcePass(km.idle, a_player, a_victim)) {
 				continue;
 			}
-			int tier = ok > 0 ? 0 : 1;
+			int tier = 1;
 			auto& bucket = tiers[tier][km.source][km.event];
 			if (bucket.empty()) {
 				(tier == 0 ? known : unknown)++;
 			}
 			bucket.push_back(&km);
 		}
-		logger::info("  animations: {} known to work with this weapon, {} untried, {} left out (refused)", known, unknown, bad);
+		(void)a_weaponKey;
+		(void)known;
+		(void)bad;
+		logger::info("  {} animations fit", unknown);
 		const int              weights[kSourceCount] = { s.weightVanilla, s.weightLowBlow, s.weightThicc };
 		std::vector<Killmove*> order;
 		for (auto& tier : tiers) {
@@ -1231,57 +1231,100 @@ namespace Zan
 		a_victim->NotifyAnimationGraph(kStaggerStop);
 		a_victim->NotifyAnimationGraph(kBlockStop);
 
-		// A refusal is instant and changes nothing (the game just does not have that animation for the weapon in
-		// hand), so many can be tried in the same frame: v3.3 showed that every animation the game accepted was
-		// joined by the enemy and ended with it dead.
-		int  wkey = WeaponKey(a_player);
-		auto order = ForceOrder(a_player, a_victim, wkey);
-		int  refusedCount = 0;
-		for (std::size_t i = 0; i < order.size() && i < 24; ++i) {
-			auto km = order[i];
-			// face each other (or the victim away for back killmoves) - paired animations start from the attacker's facing
-			auto  pp = a_player->GetPosition();
-			auto  vp = a_victim->GetPosition();
-			float toVictim = std::atan2(vp.x - pp.x, vp.y - pp.y);
-			a_player->SetHeading(toVictim);
-			float vh = IsBackKill(*km) ? toVictim : toVictim + RE::NI_PI;
-			if (vh > RE::NI_PI) {
-				vh -= RE::NI_TWO_PI;
-			}
-			a_victim->SetHeading(vh);
-			static const RE::BSFixedString kGetUpEnd("GetUpEnd");
-			if (auto st = a_victim->AsActorState();
-				st && (st->GetKnockState() == RE::KNOCK_STATE_ENUM::kGetUp || st->GetKnockState() == RE::KNOCK_STATE_ENUM::kQueued)) {
-				st->actorState1.knockState = RE::KNOCK_STATE_ENUM::kNormal;
-				a_victim->NotifyAnimationGraph(kGetUpEnd);
-			}
-			// Kaputt's call, on the real idle-tree form
-			bool ok = process->SetupSpecialIdle(a_player, RE::DEFAULT_OBJECT::kActionIdle, km->idle, true, false, a_victim);
-			auto& stat = _learn[{ wkey, km->event }];
-			if (!ok) {
-				stat.second++;
-				++refusedCount;
-				continue;
-			}
-			stat.first++;
-			logger::info("  play {} - {} ({}) -> accepted (after {} refused)", SourceName(km->source), km->event, km->editorID, refusedCount);
+		_force = Force{};
+		_force.trying = true;
+		_force.active = true;
+		_force.victim = a_victim->GetHandle();
+		_force.order = ForceOrder(a_player, a_victim, WeaponKey(a_player));
+		if (_force.order.empty()) {
 			_force = Force{};
-			_force.active = true;
-			_force.victim = a_victim->GetHandle();
-			_force.km = km;
-			_lastCandidates = { km };
-			_lastResult = std::string(SourceName(km->source)) + ": " + km->event + " [" + km->editorID + "]";
-			return true;
+			_lastResult = "no animation fits";
+			return false;
 		}
-		logger::info("  all {} tried animations refused", refusedCount);
-		_lastResult = "direct play refused";
-		Notify("\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");  // 處決動畫啟動失敗
-		return false;
+		// first try right now; ForceTick keeps trying for a moment if the game is not ready
+		return TryStart(a_player, a_victim, true);
+	}
+
+	// One try on the current animation. The game refuses a paired idle while the player or the enemy is busy
+	// (mid-swing, landing, staggered...); it accepts the same one a moment later.
+	bool Core::TryStart(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_log)
+	{
+		auto process = a_player->GetActorRuntimeData().currentProcess;
+		if (!process || _force.index >= _force.order.size()) {
+			return false;
+		}
+		auto km = _force.order[_force.index];
+		static const RE::BSFixedString kAttackStop("attackStop");
+		static const RE::BSFixedString kStaggerStop("staggerStop");
+		static const RE::BSFixedString kBlockStop("blockStop");
+		static const RE::BSFixedString kGetUpEnd("GetUpEnd");
+		a_player->NotifyAnimationGraph(kAttackStop);
+		a_victim->NotifyAnimationGraph(kAttackStop);
+		a_victim->NotifyAnimationGraph(kStaggerStop);
+		a_victim->NotifyAnimationGraph(kBlockStop);
+		if (auto st = a_victim->AsActorState();
+			st && (st->GetKnockState() == RE::KNOCK_STATE_ENUM::kGetUp || st->GetKnockState() == RE::KNOCK_STATE_ENUM::kQueued)) {
+			st->actorState1.knockState = RE::KNOCK_STATE_ENUM::kNormal;
+			a_victim->NotifyAnimationGraph(kGetUpEnd);
+		}
+		auto  pp = a_player->GetPosition();
+		auto  vp = a_victim->GetPosition();
+		float toVictim = std::atan2(vp.x - pp.x, vp.y - pp.y);
+		a_player->SetHeading(toVictim);
+		float vh = IsBackKill(*km) ? toVictim : toVictim + RE::NI_PI;
+		if (vh > RE::NI_PI) {
+			vh -= RE::NI_TWO_PI;
+		}
+		a_victim->SetHeading(vh);
+		bool ok = process->SetupSpecialIdle(a_player, RE::DEFAULT_OBJECT::kActionIdle, km->idle, true, false, a_victim);
+		if (!ok) {
+			if (_force.refusals++ == 0 || a_log) {
+				auto ps = a_player->AsActorState();
+				auto vs = a_victim->AsActorState();
+				logger::info("  {} refused - you: attack {} moving {} sprint {} midair {} | enemy: attack {} stagger {} knock {} moving {} | dist {:.0f}",
+					km->event, ps ? static_cast<int>(ps->GetAttackState()) : -1, a_player->IsMoving(), ps && ps->IsSprinting(),
+					a_player->IsInMidair(), vs ? static_cast<int>(vs->GetAttackState()) : -1, vs && vs->IsStaggered(),
+					vs ? static_cast<int>(vs->GetKnockState()) : -1, a_victim->IsMoving(), pp.GetDistance(vp));
+			}
+			return false;
+		}
+		logger::info("  play {} - {} ({}) -> accepted after {:.2f}s, {} refusals", SourceName(km->source), km->event, km->editorID,
+			_force.tryTimer, _force.refusals);
+		_force.trying = false;
+		_force.km = km;
+		_force.timer = 0.0f;
+		_lastCandidates = { km };
+		_lastResult = std::string(SourceName(km->source)) + ": " + km->event + " [" + km->editorID + "]";
+		return true;
 	}
 
 	void Core::ForceTick(RE::PlayerCharacter* a_player, float a_dt)
 	{
 		auto victim = _force.victim.get();
+		if (_force.trying) {
+			if (!victim || victim->IsDead()) {
+				_force = Force{};
+				return;
+			}
+			_force.tryTimer += a_dt;
+			_force.animTimer += a_dt;
+			// keep the same animation for 0.3 s of tries, then the next one; give up after 1.5 s
+			if (_force.animTimer > 0.3f) {
+				_force.animTimer = 0.0f;
+				if (++_force.index >= _force.order.size()) {
+					_force.index = 0;
+				}
+			}
+			if (_force.tryTimer > 1.5f) {
+				logger::info("  gave up after {} refusals", _force.refusals);
+				_lastResult = "the game refused for 1.5 s";
+				Notify("\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");  // 處決動畫啟動失敗
+				_force = Force{};
+				return;
+			}
+			TryStart(a_player, victim.get(), false);
+			return;
+		}
 		_force.timer += a_dt;
 		bool pIn = InPair(a_player);
 		bool vIn = victim && InPair(victim.get());
