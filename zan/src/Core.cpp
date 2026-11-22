@@ -674,9 +674,32 @@ namespace Zan
 		// ready for the whole window, so the player's own next attack - light or heavy - can start it too.
 		// (v1.3/1.4 cut the running animation to force the swing: that jammed BFCO's attacks, so it is gone.)
 		if (s.autoAttack) {
+			// v1.7 logs: nearly every refused swing came while the ENEMY was mid-attack - the game picks the
+			// killmove but the enemy can't be pulled into the pair (that is also the T-pose: the player starts
+			// alone). So an attacking enemy is stopped first and Zan swings on the next try.
+			if (CalmEnemy(victim)) {
+				_pending.tries = 1;
+				_pending.retry = 0.0f;
+				return;
+			}
 			_pending.sent = SendAttack(player, victim, kRight);
+			_pending.refusedIdle = !_pending.sent;
 			_pending.tries = _pending.sent ? 0 : 1;
 		}
+	}
+
+	bool Core::CalmEnemy(RE::Actor* a_victim)
+	{
+		auto vs = a_victim ? a_victim->AsActorState() : nullptr;
+		if (!vs || vs->GetAttackState() == RE::ATTACK_STATE_ENUM::kNone) {
+			return false;
+		}
+		static const RE::BSFixedString kStop("attackStop");
+		static const RE::BSFixedString kDefault("IdleForceDefaultState");
+		a_victim->NotifyAnimationGraph(kStop);
+		a_victim->NotifyAnimationGraph(kDefault);
+		logger::info("  enemy was attacking (state {}): stopped it", static_cast<int>(vs->GetAttackState()));
+		return true;
 	}
 
 	void Core::SwapLight(RE::PlayerCharacter* a_player, RE::Actor* a_victim)
@@ -814,15 +837,22 @@ namespace Zan
 				Finish(false);
 				return;
 			}
-			if (Settings::Get().autoAttack && !_pending.sent && _pending.tries > 0 && _pending.tries < 4 && victim) {
+			if (Settings::Get().autoAttack && !_pending.sent && _pending.tries > 0 && _pending.tries < 6 && victim) {
 				_pending.retry += a_dt;
 				if (_pending.retry >= 0.12f) {
 					_pending.retry = 0.0f;
-					// a refused swing usually means the game DID pick the killmove but could not start that pair
-					// (room, angle, the enemy's current move) - so the next try uses a different animation
-					SwapLight(a_player, victim.get());
-					_pending.sent = SendAttack(a_player, victim.get(), kRight);
-					_pending.tries = _pending.sent ? 0 : _pending.tries + 1;
+					// enemy still attacking: stop it and wait for the next try. Otherwise the refusal was about this
+					// animation (room, angle) - the next try uses a different one
+					if (CalmEnemy(victim.get())) {
+						_pending.tries++;
+					} else {
+						if (_pending.refusedIdle) {
+							SwapLight(a_player, victim.get());
+						}
+						_pending.sent = SendAttack(a_player, victim.get(), kRight);
+						_pending.refusedIdle = !_pending.sent;
+						_pending.tries = _pending.sent ? 0 : _pending.tries + 1;
+					}
 				}
 			}
 			if (_pending.timer > Settings::Get().window || !victim || victim->IsDead()) {
@@ -830,7 +860,20 @@ namespace Zan
 			}
 			return;
 		}
-		// running: once it is over, make sure the victim is dead
+		// running: the player in the pair but the enemy not (it kept fighting) = a T-pose. Break it off.
+		if (InPair(a_player) && victim && !InPair(victim.get()) && !victim->IsDead()) {
+			_pending.lonely += a_dt;
+			if (_pending.lonely > 0.4f) {
+				static const RE::BSFixedString kDefault("IdleForceDefaultState");
+				a_player->NotifyAnimationGraph(kDefault);
+				logger::info("  the enemy did not join the pair - stopped it (no T-pose)");
+				victim->KillImpl(a_player, 0.0f, true, true);
+				_pending = Pending{};
+			}
+			return;
+		}
+		_pending.lonely = 0.0f;
+		// once it is over, make sure the victim is dead
 		if (InPair(a_player) || InPair(victim.get())) {
 			_pending.endTimer = 0.0f;
 			return;

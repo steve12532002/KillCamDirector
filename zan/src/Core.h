@@ -90,7 +90,9 @@ namespace Zan
 			float           retry{ 0.0f };
 			float           sentAt{ -1.0f };
 			int             tries{ 0 };          // attacks Zan sent that the game did not take
-			bool            idleSeen{ false };   // the player was between attacks at some point since the key  // timer value when the attack was accepted
+			bool            idleSeen{ false };
+			float           lonely{ 0.0f };
+			bool            refusedIdle{ false };  // last swing was refused with the enemy not attacking      // time the player has been in the pair without the enemy   // the player was between attacks at some point since the key  // timer value when the attack was accepted
 		};
 
 		Core() = default;
@@ -101,6 +103,7 @@ namespace Zan
 		void        Open(Killmove* a_km, bool a_open);
 		void        Finish(bool a_started);
 		void        UpdateMarks(RE::PlayerCharacter* a_player);
+		bool        CalmEnemy(RE::Actor* a_victim);
 		void        SwapLight(RE::PlayerCharacter* a_player, RE::Actor* a_victim);
 		bool        SendAttack(RE::PlayerCharacter* a_player, RE::Actor* a_victim, int a_kind);
 		void        Dump(Killmove* a_km, RE::PlayerCharacter* a_player, RE::Actor* a_victim);
