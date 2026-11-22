@@ -1276,7 +1276,22 @@ namespace Zan
 			vh -= RE::NI_TWO_PI;
 		}
 		a_victim->SetHeading(vh);
+		// v3.5 log: the refusals were random, not tied to anyone being busy - Low-blow (GetRandomPercent >= 25 on
+		// its idles) was accepted at once, VioLens' randomizer-gated ones almost never. The game checks the idle's
+		// own conditions here. They were already checked by Zan (weapon, race...), so for this one call the idle
+		// and its parents carry no conditions at all; they are put back right after.
+		std::vector<std::pair<RE::TESIdleForm*, RE::TESConditionItem*>> heads;
+		{
+			int guard = 0;
+			for (auto n = km->idle; n && guard < 32; n = n->parentIdle, ++guard) {
+				heads.emplace_back(n, n->conditions.head);
+				n->conditions.head = nullptr;
+			}
+		}
 		bool ok = process->SetupSpecialIdle(a_player, RE::DEFAULT_OBJECT::kActionIdle, km->idle, true, false, a_victim);
+		for (auto& [n, h] : heads) {
+			n->conditions.head = h;
+		}
 		if (!ok) {
 			if (_force.refusals++ == 0 || a_log) {
 				auto ps = a_player->AsActorState();
