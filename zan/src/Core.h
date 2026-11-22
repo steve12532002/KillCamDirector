@@ -155,7 +155,10 @@ namespace Zan
 		RE::TESIdleForm*                              Twin(RE::TESIdleForm* a_idle);
 		bool                                          ForcePlay(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_anyHealth);
 		void                                          ForceTick(RE::PlayerCharacter* a_player, float a_dt);
-		Killmove*                                     ChooseForce(RE::PlayerCharacter* a_player, RE::Actor* a_victim, std::vector<Killmove*>& a_tried);
+		std::vector<Killmove*>                        ForceOrder(RE::PlayerCharacter* a_player, RE::Actor* a_victim, int a_weaponKey);
+		static int                                    WeaponKey(RE::PlayerCharacter* a_player);
+		// what the game accepted / refused to play, per weapon in hand and animation (learned while playing)
+		std::map<std::pair<int, std::string>, std::pair<int, int>> _learn;
 		std::mutex                                    _markerLock;
 		std::vector<MarkerDraw>                       _markers;
 		int                                           _dumps{ 0 };

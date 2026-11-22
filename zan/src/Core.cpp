@@ -1133,59 +1133,86 @@ namespace Zan
 		}
 	}
 
-	Killmove* Core::ChooseForce(RE::PlayerCharacter* a_player, RE::Actor* a_victim, std::vector<Killmove*>& a_tried)
+	int Core::WeaponKey(RE::PlayerCharacter* a_player)
 	{
-		auto&                                            s = Settings::Get();
-		std::array<std::vector<Killmove*>, kSourceCount> pool;
+		auto type = [](RE::TESForm* f) {
+			if (!f) {
+				return 0;
+			}
+			if (auto w = f->As<RE::TESObjectWEAP>()) {
+				return 1 + static_cast<int>(w->GetWeaponType());
+			}
+			return 15;  // spell, torch, shield...
+		};
+		return type(a_player->GetEquippedObject(false)) * 16 + type(a_player->GetEquippedObject(true));
+	}
+
+	// The order to try animations in, one record per animation: the ones the game has already played with this
+	// weapon first, then untried ones; ones it keeps refusing with this weapon are left out. Within a tier the
+	// source is drawn by the weights, then an animation from it (recent ones last).
+	std::vector<Killmove*> Core::ForceOrder(RE::PlayerCharacter* a_player, RE::Actor* a_victim, int a_weaponKey)
+	{
+		auto& s = Settings::Get();
+		// tier -> source -> event -> records
+		std::map<std::string, std::vector<Killmove*>> tiers[2][kSourceCount];
 		bool sneaking = a_player->IsSneaking();
+		int  known = 0, unknown = 0, bad = 0;
 		for (auto& km : _all) {
-			if (km.attack != kRight && km.attack != kRightPower) {
-				continue;  // left-hand / dual branches need a matching left hand: skipped in direct play
-			}
-			if (_blocked.contains(km.editorID) || (km.missed >= 3 && km.started == 0) ||
-				std::find(a_tried.begin(), a_tried.end(), &km) != a_tried.end()) {
+			if ((km.attack != kRight && km.attack != kRightPower) || _blocked.contains(km.editorID)) {
 				continue;
 			}
-			if (IsSneakKill(km) != sneaking && IsSneakKill(km)) {
+			if (IsSneakKill(km) && !sneaking) {
 				continue;
 			}
-			if (ForcePass(km.idle, a_player, a_victim)) {
-				pool[km.source].push_back(&km);
+			auto [ok, refused] = _learn[{ a_weaponKey, km.event }];
+			if (ok == 0 && refused >= 2) {
+				++bad;
+				continue;
+			}
+			if (!ForcePass(km.idle, a_player, a_victim)) {
+				continue;
+			}
+			int tier = ok > 0 ? 0 : 1;
+			auto& bucket = tiers[tier][km.source][km.event];
+			if (bucket.empty()) {
+				(tier == 0 ? known : unknown)++;
+			}
+			bucket.push_back(&km);
+		}
+		logger::info("  animations: {} known to work with this weapon, {} untried, {} left out (refused)", known, unknown, bad);
+		const int              weights[kSourceCount] = { s.weightVanilla, s.weightLowBlow, s.weightThicc };
+		std::vector<Killmove*> order;
+		for (auto& tier : tiers) {
+			for (;;) {
+				std::vector<int> src, w;
+				for (int i = 0; i < kSourceCount; ++i) {
+					if (!tier[i].empty() && weights[i] > 0) {
+						src.push_back(i);
+						w.push_back(weights[i]);
+					}
+				}
+				if (src.empty()) {
+					break;
+				}
+				std::discrete_distribution<int> pickSource(w.begin(), w.end());
+				auto&                           events = tier[src[pickSource(_rng)]];
+				std::vector<std::string>        names, fresh;
+				for (auto& [ev, recs] : events) {
+					names.push_back(ev);
+					if (std::find(_recent.begin(), _recent.end(), ev) == _recent.end()) {
+						fresh.push_back(ev);
+					}
+				}
+				auto&                                      from = fresh.empty() ? names : fresh;
+				std::uniform_int_distribution<std::size_t> pickEv(0, from.size() - 1);
+				std::string                                ev = from[pickEv(_rng)];
+				auto&                                      recs = events[ev];
+				std::uniform_int_distribution<std::size_t> pickRec(0, recs.size() - 1);
+				order.push_back(recs[pickRec(_rng)]);
+				events.erase(ev);
 			}
 		}
-		const int        weights[kSourceCount] = { s.weightVanilla, s.weightLowBlow, s.weightThicc };
-		std::vector<int> sources, w;
-		for (int i = 0; i < kSourceCount; ++i) {
-			if (!pool[i].empty() && weights[i] > 0) {
-				sources.push_back(i);
-				w.push_back(weights[i]);
-			}
-		}
-		if (a_tried.empty()) {
-			logger::info("  usable: {} vanilla, {} Low-blow, {} Thicc", pool[kVanilla].size(), pool[kLowBlow].size(), pool[kThicc].size());
-		}
-		if (sources.empty()) {
-			return nullptr;
-		}
-		std::discrete_distribution<int> pickSource(w.begin(), w.end());
-		auto&                           list = pool[sources[pickSource(_rng)]];
-		std::vector<Killmove*>          fresh;
-		for (auto km : list) {
-			if (std::find(_recent.begin(), _recent.end(), km->event) == _recent.end()) {
-				fresh.push_back(km);
-			}
-		}
-		auto& from = fresh.empty() ? list : fresh;
-		// one vote per ANIMATION, not per record: VioLens registers the same animation many times (per weapon,
-		// per mode, light/heavy copies), which would otherwise favour the most-copied animations
-		std::map<std::string, std::vector<Killmove*>> byEvent;
-		for (auto km : from) {
-			byEvent[km->event].push_back(km);
-		}
-		std::uniform_int_distribution<std::size_t> pickEvent(0, byEvent.size() - 1);
-		auto                                       it = std::next(byEvent.begin(), static_cast<std::ptrdiff_t>(pickEvent(_rng)));
-		std::uniform_int_distribution<std::size_t> pickRec(0, it->second.size() - 1);
-		return it->second[pickRec(_rng)];
+		return order;
 	}
 
 	bool Core::ForcePlay(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_anyHealth)
@@ -1204,13 +1231,14 @@ namespace Zan
 		a_victim->NotifyAnimationGraph(kStaggerStop);
 		a_victim->NotifyAnimationGraph(kBlockStop);
 
-		std::vector<Killmove*> tried;
-		for (int attempt = 0; attempt < 4; ++attempt) {
-			auto km = ChooseForce(a_player, a_victim, tried);
-			if (!km) {
-				break;
-			}
-			tried.push_back(km);
+		// A refusal is instant and changes nothing (the game just does not have that animation for the weapon in
+		// hand), so many can be tried in the same frame: v3.3 showed that every animation the game accepted was
+		// joined by the enemy and ended with it dead.
+		int  wkey = WeaponKey(a_player);
+		auto order = ForceOrder(a_player, a_victim, wkey);
+		int  refusedCount = 0;
+		for (std::size_t i = 0; i < order.size() && i < 24; ++i) {
+			auto km = order[i];
 			// face each other (or the victim away for back killmoves) - paired animations start from the attacker's facing
 			auto  pp = a_player->GetPosition();
 			auto  vp = a_victim->GetPosition();
@@ -1221,36 +1249,31 @@ namespace Zan
 				vh -= RE::NI_TWO_PI;
 			}
 			a_victim->SetHeading(vh);
-
-			// exactly Kaputt's call (the player always started with it): the real idle-tree form first,
-			// a stand-alone copy without conditions only if that is refused
 			static const RE::BSFixedString kGetUpEnd("GetUpEnd");
 			if (auto st = a_victim->AsActorState();
 				st && (st->GetKnockState() == RE::KNOCK_STATE_ENUM::kGetUp || st->GetKnockState() == RE::KNOCK_STATE_ENUM::kQueued)) {
 				st->actorState1.knockState = RE::KNOCK_STATE_ENUM::kNormal;
 				a_victim->NotifyAnimationGraph(kGetUpEnd);
 			}
+			// Kaputt's call, on the real idle-tree form
 			bool ok = process->SetupSpecialIdle(a_player, RE::DEFAULT_OBJECT::kActionIdle, km->idle, true, false, a_victim);
-			const char* how = "original";
+			auto& stat = _learn[{ wkey, km->event }];
 			if (!ok) {
-				if (auto twin = Twin(km->idle)) {
-					ok = process->SetupSpecialIdle(a_player, RE::DEFAULT_OBJECT::kActionIdle, twin, true, false, a_victim);
-					how = "copy";
-				}
+				stat.second++;
+				++refusedCount;
+				continue;
 			}
-			logger::info("  play {} - {} ({}) -> {}{}", SourceName(km->source), km->event, km->editorID, ok ? "accepted as " : "REFUSED",
-				ok ? how : "");
-			if (ok) {
-				_force = Force{};
-				_force.active = true;
-				_force.victim = a_victim->GetHandle();
-				_force.km = km;
-				_lastCandidates = { km };
-				_lastResult = std::string(SourceName(km->source)) + ": " + km->event + " [" + km->editorID + "]";
-				return true;
-			}
-			km->missed++;
+			stat.first++;
+			logger::info("  play {} - {} ({}) -> accepted (after {} refused)", SourceName(km->source), km->event, km->editorID, refusedCount);
+			_force = Force{};
+			_force.active = true;
+			_force.victim = a_victim->GetHandle();
+			_force.km = km;
+			_lastCandidates = { km };
+			_lastResult = std::string(SourceName(km->source)) + ": " + km->event + " [" + km->editorID + "]";
+			return true;
 		}
+		logger::info("  all {} tried animations refused", refusedCount);
 		_lastResult = "direct play refused";
 		Notify("\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");  // 處決動畫啟動失敗
 		return false;
