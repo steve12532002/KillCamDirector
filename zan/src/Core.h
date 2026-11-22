@@ -57,7 +57,8 @@ namespace Zan
 
 		void OnKey();  // execute key pressed
 		void Tick(RE::PlayerCharacter* a_player, float a_dt);
-		void ForceTest();  // settings-page button: force a killmove on the nearest enemy (any health)
+		void ForceTest();
+		void RenderTick();  // called from the HUD draw every frame: the direct-play tries happen there  // settings-page button: force a killmove on the nearest enemy (any health)
 		void UpdateMarkerScreen();
 		void OnPreLoad();
 
@@ -156,8 +157,12 @@ namespace Zan
 			float                  tryTimer{ 0.0f };   // since the key
 			float                  animTimer{ 0.0f };  // on the current animation
 			int                    refusals{ 0 };
+			std::chrono::steady_clock::time_point start;
+			bool                   controlsSaved{ false };
+			std::uint32_t          enabledControls{ 0 }, storedControls{ 0 };
 		};
 		Force                                         _force;
+		void                                          EndTrying();
 		bool                                          TryStart(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_log);
 		std::unordered_map<RE::TESIdleForm*, RE::TESIdleForm*> _twins;
 		RE::TESIdleForm*                              Twin(RE::TESIdleForm* a_idle);

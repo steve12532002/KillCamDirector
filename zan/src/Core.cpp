@@ -1241,8 +1241,59 @@ namespace Zan
 			_lastResult = "no animation fits";
 			return false;
 		}
-		// first try right now; ForceTick keeps trying for a moment if the game is not ready
-		return TryStart(a_player, a_victim, true);
+		// v3.6 log: the settings-page Test button (called from the menu's draw) mostly worked, the key (called
+		// from the input handler / main update) mostly did not. So the tries now run from the same place as the
+		// Test button - the HUD draw, every frame - and the player's movement / attack controls are held off
+		// while trying so the input of that frame can't cancel the idle.
+		_force.start = std::chrono::steady_clock::now();
+		if (auto cm = RE::ControlMap::GetSingleton()) {
+			cm->GetControlsState(_force.enabledControls, _force.storedControls);
+			_force.controlsSaved = true;
+			cm->ToggleControls(static_cast<RE::UserEvents::USER_EVENT_FLAG>(
+								   static_cast<std::uint32_t>(RE::UserEvents::USER_EVENT_FLAG::kMovement) |
+								   static_cast<std::uint32_t>(RE::UserEvents::USER_EVENT_FLAG::kFighting)),
+				false, false);
+		}
+		return true;
+	}
+
+	void Core::EndTrying()
+	{
+		if (_force.controlsSaved) {
+			if (auto cm = RE::ControlMap::GetSingleton()) {
+				cm->SetControlsState(_force.enabledControls, _force.storedControls);
+			}
+			_force.controlsSaved = false;
+		}
+	}
+
+	void Core::RenderTick()
+	{
+		if (!_force.active || !_force.trying) {
+			return;
+		}
+		auto player = RE::PlayerCharacter::GetSingleton();
+		auto victim = _force.victim.get();
+		if (!player || !victim || victim->IsDead()) {
+			EndTrying();
+			_force = Force{};
+			return;
+		}
+		float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - _force.start).count();
+		_force.tryTimer = t;
+		if (t > 1.5f) {
+			logger::info("  gave up after {} refusals", _force.refusals);
+			_lastResult = "the game refused for 1.5 s";
+			EndTrying();
+			_force = Force{};
+			Notify("\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");  // 處決動畫啟動失敗
+			return;
+		}
+		// a new animation every 0.3 s - the v3.6 log showed acceptance mostly on an animation's first try
+		_force.index = static_cast<std::size_t>(t / 0.3f) % _force.order.size();
+		if (TryStart(player, victim.get(), _force.refusals == 0)) {
+			EndTrying();
+		}
 	}
 
 	// One try on the current animation. The game refuses a paired idle while the player or the enemy is busy
@@ -1317,28 +1368,7 @@ namespace Zan
 	{
 		auto victim = _force.victim.get();
 		if (_force.trying) {
-			if (!victim || victim->IsDead()) {
-				_force = Force{};
-				return;
-			}
-			_force.tryTimer += a_dt;
-			_force.animTimer += a_dt;
-			// keep the same animation for 0.3 s of tries, then the next one; give up after 1.5 s
-			if (_force.animTimer > 0.3f) {
-				_force.animTimer = 0.0f;
-				if (++_force.index >= _force.order.size()) {
-					_force.index = 0;
-				}
-			}
-			if (_force.tryTimer > 1.5f) {
-				logger::info("  gave up after {} refusals", _force.refusals);
-				_lastResult = "the game refused for 1.5 s";
-				Notify("\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");  // 處決動畫啟動失敗
-				_force = Force{};
-				return;
-			}
-			TryStart(a_player, victim.get(), false);
-			return;
+			return;  // the tries run in RenderTick
 		}
 		_force.timer += a_dt;
 		bool pIn = InPair(a_player);
@@ -1431,6 +1461,7 @@ namespace Zan
 		if (_pending.active) {
 			Finish(_pending.started);
 		}
+		EndTrying();
 		_force = Force{};
 		_marked.clear();
 	}

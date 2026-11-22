@@ -46,6 +46,7 @@ namespace Zan::UI
 
 		void __stdcall DrawMarkers()
 		{
+			Core::Get().RenderTick();
 			auto& s = Settings::Get();
 			if (!s.enabled || !s.markerEnabled || SKSEMenuFramework::IsAnyBlockingWindowOpened()) {
 				return;
