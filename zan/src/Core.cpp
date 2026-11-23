@@ -174,6 +174,7 @@ namespace Zan
 			static void thunk(RE::Main* a_this, float a_arg)
 			{
 				func(a_this, a_arg);
+				Core::Get().PauseWatchdog();
 				auto player = RE::PlayerCharacter::GetSingleton();
 				auto ui = RE::UI::GetSingleton();
 				if (!player || !player->Is3DLoaded() || (ui && ui->GameIsPaused())) {
@@ -1246,24 +1247,31 @@ namespace Zan
 		// Test button - the HUD draw, every frame - and the player's movement / attack controls are held off
 		// while trying so the input of that frame can't cancel the idle.
 		_force.start = std::chrono::steady_clock::now();
-		if (auto cm = RE::ControlMap::GetSingleton()) {
-			cm->GetControlsState(_force.enabledControls, _force.storedControls);
-			_force.controlsSaved = true;
-			cm->ToggleControls(static_cast<RE::UserEvents::USER_EVENT_FLAG>(
-								   static_cast<std::uint32_t>(RE::UserEvents::USER_EVENT_FLAG::kMovement) |
-								   static_cast<std::uint32_t>(RE::UserEvents::USER_EVENT_FLAG::kFighting)),
-				false, false);
-		}
 		return true;
 	}
 
 	void Core::EndTrying()
 	{
+		if (_force.paused) {
+			if (auto ui = RE::UI::GetSingleton(); ui && ui->numPausesGame > 0) {
+				ui->numPausesGame--;
+			}
+			_force.paused = false;
+		}
 		if (_force.controlsSaved) {
 			if (auto cm = RE::ControlMap::GetSingleton()) {
 				cm->SetControlsState(_force.enabledControls, _force.storedControls);
 			}
 			_force.controlsSaved = false;
+		}
+	}
+
+	void Core::PauseWatchdog()
+	{
+		if (_force.paused && std::chrono::steady_clock::now() - _force.pausedAt > std::chrono::milliseconds(800)) {
+			logger::info("  watchdog: released Zan's pause");
+			EndTrying();
+			_force = Force{};
 		}
 	}
 
@@ -1274,25 +1282,33 @@ namespace Zan
 		}
 		auto player = RE::PlayerCharacter::GetSingleton();
 		auto victim = _force.victim.get();
-		if (!player || !victim || victim->IsDead()) {
+		auto ui = RE::UI::GetSingleton();
+		if (!player || !victim || victim->IsDead() || !ui) {
 			EndTrying();
 			_force = Force{};
 			return;
 		}
-		float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - _force.start).count();
-		_force.tryTimer = t;
-		if (t > 1.5f) {
-			logger::info("  gave up after {} refusals", _force.refusals);
-			_lastResult = "the game refused for 1.5 s";
+		// The Test button worked because the settings menu pauses the game: nobody moves, nothing interrupts
+		// the request. The key now does the same for a few frames: pause, try, unpause.
+		if (!_force.paused) {
+			ui->numPausesGame++;
+			_force.paused = true;
+			_force.pausedAt = std::chrono::steady_clock::now();
+			_force.pausedFrames = 0;
+			return;  // the pause takes effect from the next frame
+		}
+		if (++_force.pausedFrames > 12) {
+			logger::info("  gave up after {} refusals (paused)", _force.refusals);
+			_lastResult = "the game refused";
 			EndTrying();
 			_force = Force{};
 			Notify("\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");  // 處決動畫啟動失敗
 			return;
 		}
-		// a new animation every 0.3 s - the v3.6 log showed acceptance mostly on an animation's first try
-		_force.index = static_cast<std::size_t>(t / 0.3f) % _force.order.size();
+		// one animation per paused frame (an animation's first try is the one that gets accepted)
+		_force.index = static_cast<std::size_t>(_force.pausedFrames - 1) % _force.order.size();
 		if (TryStart(player, victim.get(), _force.refusals == 0)) {
-			EndTrying();
+			EndTrying();  // unpause - the pair starts as the game resumes
 		}
 	}
 
@@ -1390,9 +1406,11 @@ namespace Zan
 		}
 		// never started at all
 		if (!_force.playerIn && _force.timer > 0.6f) {
-			logger::info("  accepted but the player never entered the pair");
+			logger::info("  accepted but the player never entered the pair - {} left out from now on",
+				_force.km ? _force.km->editorID : "");
 			if (_force.km) {
 				_force.km->missed++;
+				_blocked.insert(_force.km->editorID);  // this session only (not saved)
 			}
 			_lastResult += " - did not start";
 			_force = Force{};

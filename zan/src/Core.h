@@ -58,7 +58,8 @@ namespace Zan
 		void OnKey();  // execute key pressed
 		void Tick(RE::PlayerCharacter* a_player, float a_dt);
 		void ForceTest();
-		void RenderTick();  // called from the HUD draw every frame: the direct-play tries happen there  // settings-page button: force a killmove on the nearest enemy (any health)
+		void RenderTick();
+		void PauseWatchdog();  // every frame, paused or not: never leave the game paused by Zan  // called from the HUD draw every frame: the direct-play tries happen there  // settings-page button: force a killmove on the nearest enemy (any health)
 		void UpdateMarkerScreen();
 		void OnPreLoad();
 
@@ -159,6 +160,9 @@ namespace Zan
 			int                    refusals{ 0 };
 			std::chrono::steady_clock::time_point start;
 			bool                   controlsSaved{ false };
+			bool                   paused{ false };   // Zan is holding the game paused for the try
+			int                    pausedFrames{ 0 };
+			std::chrono::steady_clock::time_point pausedAt;
 			std::uint32_t          enabledControls{ 0 }, storedControls{ 0 };
 		};
 		Force                                         _force;
