@@ -158,6 +158,7 @@ namespace Zan
 			float                  tryTimer{ 0.0f };   // since the key
 			float                  animTimer{ 0.0f };  // on the current animation
 			int                    refusals{ 0 };
+			int                    where[6]{};
 			std::chrono::steady_clock::time_point start;
 			bool                   controlsSaved{ false };
 			bool                   paused{ false };   // Zan is holding the game paused for the try

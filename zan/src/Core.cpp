@@ -169,6 +169,71 @@ namespace Zan
 			Core::Get().UpdateMarkerScreen();
 		}
 
+		// ---- diagnostics: which step of the engine's paired-scene start refuses (1.6.1170, IDs from its
+		// address library; call sites verified as E8 calls in the unpacked exe)
+		bool          g_watch = false;
+		std::int8_t   g_stage[5] = { -1, -1, -1, -1, -1 };  // add player, add enemy, start scene, enemy action, whole pair
+
+		template <int N>
+		struct Add3
+		{
+			static bool thunk(void* a, void* b, void* c)
+			{
+				bool r = func(a, b, c);
+				if (g_watch) {
+					g_stage[N] = r;
+				}
+				return r;
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+		template <int N>
+		struct One
+		{
+			static bool thunk(void* a)
+			{
+				bool r = func(a);
+				if (g_watch) {
+					g_stage[N] = r;
+				}
+				return r;
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+		struct Two
+		{
+			static bool thunk(void* a, void* b)
+			{
+				bool r = func(a, b);
+				if (g_watch) {
+					g_stage[4] = r;
+				}
+				return r;
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+
+		void InstallDiagHooks()
+		{
+			if (!REL::Module::IsAE() || REL::Module::get().version() != REL::Version(1, 6, 1170, 0)) {
+				return;
+			}
+			auto& t = SKSE::GetTrampoline();
+			auto  base = REL::ID(32803).address();
+			auto  call = [](std::uintptr_t a) { return *reinterpret_cast<std::uint8_t*>(a) == 0xE8; };
+			if (call(base + 0xF7) && call(base + 0x10D) && call(base + 0x118) && call(base + 0x22F)) {
+				Add3<0>::func = t.write_call<5>(base + 0xF7, Add3<0>::thunk);
+				Add3<1>::func = t.write_call<5>(base + 0x10D, Add3<1>::thunk);
+				One<2>::func = t.write_call<5>(base + 0x118, One<2>::thunk);
+				One<3>::func = t.write_call<5>(base + 0x22F, One<3>::thunk);
+			}
+			auto act = REL::ID(38949).address() + 0xF8;
+			if (call(act)) {
+				Two::func = t.write_call<5>(act, Two::thunk);
+			}
+			logger::info("Paired-start diagnostics installed");
+		}
+
 		struct MainUpdateHook
 		{
 			static void thunk(RE::Main* a_this, float a_arg)
@@ -190,9 +255,10 @@ namespace Zan
 	void Core::InstallHooks()
 	{
 		REL::Relocation<std::uintptr_t> mainUpdate{ RELOCATION_ID(35551, 36544), REL::VariantOffset(0x11F, 0x160, 0x0) };
-		SKSE::AllocTrampoline(14);
+		SKSE::AllocTrampoline(14 * 7);
 		MainUpdateHook::func = SKSE::GetTrampoline().write_call<5>(mainUpdate.address(), MainUpdateHook::thunk);
 		logger::info("Main update hook installed");
+		InstallDiagHooks();
 
 		REL::Relocation<std::uintptr_t> cam{ RELOCATION_ID(49852, 50784) };
 		MH_STATUS st = MH_Initialize();
@@ -1291,7 +1357,8 @@ namespace Zan
 		float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - _force.start).count();
 		_force.tryTimer = t;
 		if (t > 1.5f) {
-			logger::info("  gave up after {} refusals", _force.refusals);
+			logger::info("  gave up after {} refusals - refused at: before pair {}, add you {}, add enemy {}, start scene {}, enemy action {}, later {}",
+				_force.refusals, _force.where[0], _force.where[1], _force.where[2], _force.where[3], _force.where[4], _force.where[5]);
 			_lastResult = "the game refused for 1.5 s";
 			EndTrying();
 			_force = Force{};
@@ -1383,14 +1450,29 @@ namespace Zan
 				n->conditions.head = nullptr;
 			}
 		}
+		std::fill(std::begin(g_stage), std::end(g_stage), static_cast<std::int8_t>(-1));
+		g_watch = true;
 		bool ok = process->SetupSpecialIdle(a_player, RE::DEFAULT_OBJECT::kActionIdle, km->idle, true, false, a_victim);
+		g_watch = false;
 		for (auto& [n, h] : heads) {
 			n->conditions.head = h;
 		}
 		if (!ok) {
+			// where it failed: 0 before the pair step, 1 add you, 2 add enemy, 3 start scene, 4 enemy action,
+			// 5 pair step passed but refused later
+			int where = 0;
+			if (g_stage[4] == 1) {
+				where = 5;
+			} else if (g_stage[4] == 0) {
+				where = g_stage[0] == 0 ? 1 : g_stage[1] == 0 ? 2 : g_stage[2] == 0 ? 3 : g_stage[3] == 0 ? 4 : 5;
+			}
+			_force.where[where]++;
 			if (_force.refusals++ == 0 || a_log) {
 				auto ps = a_player->AsActorState();
 				auto vs = a_victim->AsActorState();
+				// -1 = step not reached, 0 = refused there, 1 = passed
+				logger::info("    steps: pair start {} | add you {} | add enemy {} | start scene {} | enemy action {}", g_stage[4],
+					g_stage[0], g_stage[1], g_stage[2], g_stage[3]);
 				auto sc = Scenes(a_player, a_victim);
 				logger::info("    paired scenes: {} active, you in one: {}, enemy in one: {}{}", sc.scenes, sc.player, sc.victim,
 					sc.known ? "" : " (unknown)");
