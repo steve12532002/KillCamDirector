@@ -1277,38 +1277,66 @@ namespace Zan
 
 	void Core::RenderTick()
 	{
-		if (!_force.active || !_force.trying) {
-			return;
-		}
-		auto player = RE::PlayerCharacter::GetSingleton();
+		// (v3.7 tried from the HUD draw, v3.8 paused the game - neither helped; tries are back on the main update)
+	}
+
+	void Core::TryTick(RE::PlayerCharacter* a_player)
+	{
 		auto victim = _force.victim.get();
-		auto ui = RE::UI::GetSingleton();
-		if (!player || !victim || victim->IsDead() || !ui) {
+		if (!victim || victim->IsDead()) {
 			EndTrying();
 			_force = Force{};
 			return;
 		}
-		// The Test button worked because the settings menu pauses the game: nobody moves, nothing interrupts
-		// the request. The key now does the same for a few frames: pause, try, unpause.
-		if (!_force.paused) {
-			ui->numPausesGame++;
-			_force.paused = true;
-			_force.pausedAt = std::chrono::steady_clock::now();
-			_force.pausedFrames = 0;
-			return;  // the pause takes effect from the next frame
-		}
-		if (++_force.pausedFrames > 12) {
-			logger::info("  gave up after {} refusals (paused)", _force.refusals);
-			_lastResult = "the game refused";
+		float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - _force.start).count();
+		_force.tryTimer = t;
+		if (t > 1.5f) {
+			logger::info("  gave up after {} refusals", _force.refusals);
+			_lastResult = "the game refused for 1.5 s";
 			EndTrying();
 			_force = Force{};
 			Notify("\xE8\x99\x95\xE6\xB1\xBA\xE5\x8B\x95\xE7\x95\xAB\xE5\x95\x9F\xE5\x8B\x95\xE5\xA4\xB1\xE6\x95\x97");  // 處決動畫啟動失敗
 			return;
 		}
-		// one animation per paused frame (an animation's first try is the one that gets accepted)
-		_force.index = static_cast<std::size_t>(_force.pausedFrames - 1) % _force.order.size();
-		if (TryStart(player, victim.get(), _force.refusals == 0)) {
-			EndTrying();  // unpause - the pair starts as the game resumes
+		_force.index = static_cast<std::size_t>(t / 0.3f) % _force.order.size();
+		if (TryStart(a_player, victim.get(), _force.refusals == 0)) {
+			EndTrying();
+		}
+	}
+
+	namespace
+	{
+		// The engine's synchronized-animation (paired) scene manager. Reverse engineered from 1.6.1170:
+		// SetupSpecialIdle refuses at once when the actor is already in one of its scenes, and the pair start
+		// refuses when the target is (RVA 0x548620 = ID 32808 "is actor in a scene", manager ptr ID 401100).
+		struct SceneInfo
+		{
+			bool known{ false };
+			bool player{ false };
+			bool victim{ false };
+			int  scenes{ 0 };
+		};
+
+		SceneInfo Scenes(RE::Actor* a_player, RE::Actor* a_victim)
+		{
+			SceneInfo r;
+			if (!REL::Module::IsAE()) {
+				return r;
+			}
+			static REL::Relocation<void**> mgrPtr{ REL::ID(401100) };
+			using IsIn_t = bool (*)(void*, std::uint32_t*);
+			static REL::Relocation<IsIn_t> isIn{ REL::ID(32808) };
+			void* mgr = *mgrPtr;
+			if (!mgr) {
+				return r;
+			}
+			r.known = true;
+			r.scenes = static_cast<int>(*reinterpret_cast<std::uint32_t*>(reinterpret_cast<std::uintptr_t>(mgr) + 0x18));
+			std::uint32_t hp = a_player->GetHandle().native_handle();
+			std::uint32_t hv = a_victim->GetHandle().native_handle();
+			r.player = isIn(mgr, &hp);
+			r.victim = isIn(mgr, &hv);
+			return r;
 		}
 	}
 
@@ -1363,6 +1391,9 @@ namespace Zan
 			if (_force.refusals++ == 0 || a_log) {
 				auto ps = a_player->AsActorState();
 				auto vs = a_victim->AsActorState();
+				auto sc = Scenes(a_player, a_victim);
+				logger::info("    paired scenes: {} active, you in one: {}, enemy in one: {}{}", sc.scenes, sc.player, sc.victim,
+					sc.known ? "" : " (unknown)");
 				logger::info("  {} refused - you: attack {} moving {} sprint {} midair {} | enemy: attack {} stagger {} knock {} moving {} | dist {:.0f}",
 					km->event, ps ? static_cast<int>(ps->GetAttackState()) : -1, a_player->IsMoving(), ps && ps->IsSprinting(),
 					a_player->IsInMidair(), vs ? static_cast<int>(vs->GetAttackState()) : -1, vs && vs->IsStaggered(),
@@ -1384,7 +1415,8 @@ namespace Zan
 	{
 		auto victim = _force.victim.get();
 		if (_force.trying) {
-			return;  // the tries run in RenderTick
+			TryTick(a_player);
+			return;
 		}
 		_force.timer += a_dt;
 		bool pIn = InPair(a_player);

@@ -167,6 +167,7 @@ namespace Zan
 		};
 		Force                                         _force;
 		void                                          EndTrying();
+		void                                          TryTick(RE::PlayerCharacter* a_player);
 		bool                                          TryStart(RE::PlayerCharacter* a_player, RE::Actor* a_victim, bool a_log);
 		std::unordered_map<RE::TESIdleForm*, RE::TESIdleForm*> _twins;
 		RE::TESIdleForm*                              Twin(RE::TESIdleForm* a_idle);
