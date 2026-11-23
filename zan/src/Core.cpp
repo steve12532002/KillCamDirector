@@ -172,7 +172,8 @@ namespace Zan
 		// ---- diagnostics: which step of the engine's paired-scene start refuses (1.6.1170, IDs from its
 		// address library; call sites verified as E8 calls in the unpacked exe)
 		bool          g_watch = false;
-		std::int8_t   g_stage[5] = { -1, -1, -1, -1, -1 };  // add player, add enemy, start scene, enemy action, whole pair
+		// add player, add enemy, start scene, enemy action, whole pair, room check (original), leader sync, follower sync
+		std::int8_t   g_stage[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 
 		template <int N>
 		struct Add3
@@ -213,6 +214,36 @@ namespace Zan
 			static inline REL::Relocation<decltype(thunk)> func;
 		};
 
+		// The scene start (ID 32792) checks that the enemy's body fits where the pair puts it (RVA 0xE9E2D0:
+		// a collision query of its character controller at that spot) - THE refusal in every v3.10 log line.
+		// For Zan's own requests the check is skipped: the pair starts and the animation aligns the enemy.
+		struct RoomCheck
+		{
+			static bool thunk(void* a_controller, float* a_pos, void* a_flags, bool a_arg)
+			{
+				bool r = func(a_controller, a_pos, a_flags, a_arg);
+				if (g_watch) {
+					g_stage[5] = r;
+					return true;
+				}
+				return r;
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+		template <int N>
+		struct Sync3
+		{
+			static bool thunk(void* a, void* b, void* c)
+			{
+				bool r = func(a, b, c);
+				if (g_watch) {
+					g_stage[N] = r;
+				}
+				return r;
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+
 		void InstallDiagHooks()
 		{
 			if (!REL::Module::IsAE() || REL::Module::get().version() != REL::Version(1, 6, 1170, 0)) {
@@ -226,6 +257,13 @@ namespace Zan
 				Add3<1>::func = t.write_call<5>(base + 0x10D, Add3<1>::thunk);
 				One<2>::func = t.write_call<5>(base + 0x118, One<2>::thunk);
 				One<3>::func = t.write_call<5>(base + 0x22F, One<3>::thunk);
+			}
+			auto start = REL::ID(32792).address();
+			if (call(start + 0x5B6) && call(start + 0x1E6) && call(start + 0x3FE)) {
+				RoomCheck::func = t.write_call<5>(start + 0x5B6, RoomCheck::thunk);
+				Sync3<6>::func = t.write_call<5>(start + 0x1E6, Sync3<6>::thunk);
+				Sync3<7>::func = t.write_call<5>(start + 0x3FE, Sync3<7>::thunk);
+				logger::info("Room check bypass installed (Zan's own requests only)");
 			}
 			auto act = REL::ID(38949).address() + 0xF8;
 			if (call(act)) {
@@ -255,7 +293,7 @@ namespace Zan
 	void Core::InstallHooks()
 	{
 		REL::Relocation<std::uintptr_t> mainUpdate{ RELOCATION_ID(35551, 36544), REL::VariantOffset(0x11F, 0x160, 0x0) };
-		SKSE::AllocTrampoline(14 * 7);
+		SKSE::AllocTrampoline(14 * 10);
 		MainUpdateHook::func = SKSE::GetTrampoline().write_call<5>(mainUpdate.address(), MainUpdateHook::thunk);
 		logger::info("Main update hook installed");
 		InstallDiagHooks();
@@ -1471,8 +1509,8 @@ namespace Zan
 				auto ps = a_player->AsActorState();
 				auto vs = a_victim->AsActorState();
 				// -1 = step not reached, 0 = refused there, 1 = passed
-				logger::info("    steps: pair start {} | add you {} | add enemy {} | start scene {} | enemy action {}", g_stage[4],
-					g_stage[0], g_stage[1], g_stage[2], g_stage[3]);
+				logger::info("    steps: pair start {} | add you {} | add enemy {} | start scene {} (room {} sync {}/{}) | enemy action {}",
+					g_stage[4], g_stage[0], g_stage[1], g_stage[2], g_stage[5], g_stage[6], g_stage[7], g_stage[3]);
 				auto sc = Scenes(a_player, a_victim);
 				logger::info("    paired scenes: {} active, you in one: {}, enemy in one: {}{}", sc.scenes, sc.player, sc.victim,
 					sc.known ? "" : " (unknown)");
@@ -1483,8 +1521,8 @@ namespace Zan
 			}
 			return false;
 		}
-		logger::info("  play {} - {} ({}) -> accepted after {:.2f}s, {} refusals", SourceName(km->source), km->event, km->editorID,
-			_force.tryTimer, _force.refusals);
+		logger::info("  play {} - {} ({}) -> accepted after {:.2f}s, {} refusals (room check {})", SourceName(km->source), km->event,
+			km->editorID, _force.tryTimer, _force.refusals, g_stage[5] == 0 ? "said blocked - skipped" : g_stage[5] == 1 ? "ok" : "n/a");
 		_force.trying = false;
 		_force.km = km;
 		_force.timer = 0.0f;
